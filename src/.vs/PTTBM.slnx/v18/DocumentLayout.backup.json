@@ -1,22 +1,30 @@
 {
   "Version": 1,
-  "WorkspaceRootPath": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\",
+  "WorkspaceRootPath": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|c:\\users\\user\\desktop\\home\\vms\\vmshared\\windows-internals\\pttbm\\pttbm\\models\\tokeninfo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|solutionrelative:models\\tokeninfo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|c:\\users\\user\\desktop\\home\\vms\\vmshared\\windows-internals\\pttbm\\pttbm\\collectors\\tokencollector.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|solutionrelative:collectors\\tokencollector.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|c:\\users\\user\\desktop\\home\\vms\\vmshared\\windows-internals\\pttbm\\pttbm\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "AbsoluteMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|c:\\users\\user\\desktop\\home\\vms\\vmshared\\windows-internals\\windows-process-token-trust-boundary-mapper\\windows-process-token-trust-boundary-mapper\\src\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|solutionrelative:program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|c:\\users\\user\\desktop\\home\\vms\\vmshared\\windows-internals\\pttbm\\pttbm\\collectors\\processenumerator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|solutionrelative:collectors\\processenumerator.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|c:\\users\\user\\desktop\\home\\vms\\vmshared\\windows-internals\\windows-process-token-trust-boundary-mapper\\windows-process-token-trust-boundary-mapper\\src\\collectors\\tokencollector.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|solutionrelative:collectors\\tokencollector.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|c:\\users\\user\\desktop\\home\\vms\\vmshared\\windows-internals\\windows-process-token-trust-boundary-mapper\\windows-process-token-trust-boundary-mapper\\src\\renders\\outputwriter\\consoletableoutputwriter.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|solutionrelative:renders\\outputwriter\\consoletableoutputwriter.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|c:\\users\\user\\desktop\\home\\vms\\vmshared\\windows-internals\\windows-process-token-trust-boundary-mapper\\windows-process-token-trust-boundary-mapper\\src\\renders\\outputwriter\\ioutputwriter.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|solutionrelative:renders\\outputwriter\\ioutputwriter.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|c:\\users\\user\\desktop\\home\\vms\\vmshared\\windows-internals\\windows-process-token-trust-boundary-mapper\\windows-process-token-trust-boundary-mapper\\src\\models\\tokeninfo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|solutionrelative:models\\tokeninfo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|c:\\users\\user\\desktop\\home\\vms\\vmshared\\windows-internals\\windows-process-token-trust-boundary-mapper\\windows-process-token-trust-boundary-mapper\\src\\models\\processrecord.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{DC3FA525-EF7F-C5A9-C261-5A286D5E511A}|PTTBM.csproj|solutionrelative:models\\processrecord.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
   ],
   "DocumentGroupContainers": [
@@ -26,56 +34,85 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 1,
+          "SelectedChildIndex": 5,
           "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "ConsoleTableOutputWriter.cs",
+              "DocumentMoniker": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\Renders\\OutputWriter\\ConsoleTableOutputWriter.cs",
+              "RelativeDocumentMoniker": "Renders\\OutputWriter\\ConsoleTableOutputWriter.cs",
+              "ToolTip": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\Renders\\OutputWriter\\ConsoleTableOutputWriter.cs",
+              "RelativeToolTip": "Renders\\OutputWriter\\ConsoleTableOutputWriter.cs",
+              "ViewState": "AgIAAAgAAAAAAAAAAADwvygAAAAoAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-03T10:54:45.751Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "IOutputWriter.cs",
+              "DocumentMoniker": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\Renders\\OutputWriter\\IOutputWriter.cs",
+              "RelativeDocumentMoniker": "Renders\\OutputWriter\\IOutputWriter.cs",
+              "ToolTip": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\Renders\\OutputWriter\\IOutputWriter.cs",
+              "RelativeToolTip": "Renders\\OutputWriter\\IOutputWriter.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAiwAoAAAASAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-03T10:53:16.761Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "ProcessRecord.cs",
+              "DocumentMoniker": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\Models\\ProcessRecord.cs",
+              "RelativeDocumentMoniker": "Models\\ProcessRecord.cs",
+              "ToolTip": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\Models\\ProcessRecord.cs",
+              "RelativeToolTip": "Models\\ProcessRecord.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAA1AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-01-03T10:22:18.016Z",
+              "EditorCaption": ""
+            },
             {
               "$type": "Document",
               "DocumentIndex": 1,
               "Title": "TokenCollector.cs",
-              "DocumentMoniker": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\Collectors\\TokenCollector.cs",
+              "DocumentMoniker": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\Collectors\\TokenCollector.cs",
               "RelativeDocumentMoniker": "Collectors\\TokenCollector.cs",
-              "ToolTip": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\Collectors\\TokenCollector.cs",
+              "ToolTip": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\Collectors\\TokenCollector.cs",
               "RelativeToolTip": "Collectors\\TokenCollector.cs",
-              "ViewState": "AgIAAEgAAAAAAAAAAAAuwFAAAAAoAAAAAAAAAA==",
+              "ViewState": "AgIAAAMAAAAAAAAAAAAEwBYAAAAfAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-01-02T23:18:38.602Z"
+              "WhenOpened": "2026-01-02T23:18:38.602Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 4,
               "Title": "TokenInfo.cs",
-              "DocumentMoniker": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\Models\\TokenInfo.cs",
+              "DocumentMoniker": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\Models\\TokenInfo.cs",
               "RelativeDocumentMoniker": "Models\\TokenInfo.cs",
-              "ToolTip": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\Models\\TokenInfo.cs",
+              "ToolTip": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\Models\\TokenInfo.cs",
               "RelativeToolTip": "Models\\TokenInfo.cs",
-              "ViewState": "AgIAAFYAAAAAAAAAAAA0wGAAAAAEAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-01-02T22:58:54.95Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
-              "Title": "ProcessEnumerator.cs",
-              "DocumentMoniker": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\Collectors\\ProcessEnumerator.cs",
-              "RelativeDocumentMoniker": "Collectors\\ProcessEnumerator.cs",
-              "ToolTip": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\Collectors\\ProcessEnumerator.cs",
-              "RelativeToolTip": "Collectors\\ProcessEnumerator.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAABYAAAA7AAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-01-02T22:52:36.382Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 0,
               "Title": "Program.cs",
-              "DocumentMoniker": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\Program.cs",
+              "DocumentMoniker": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\Program.cs",
               "RelativeDocumentMoniker": "Program.cs",
-              "ToolTip": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\Program.cs",
+              "ToolTip": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\Program.cs",
               "RelativeToolTip": "Program.cs",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAABIAAAANAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAB4AAAAPAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-01-02T16:44:41.561Z"
+              "WhenOpened": "2026-01-02T16:44:41.561Z",
+              "EditorCaption": ""
             }
           ]
         }

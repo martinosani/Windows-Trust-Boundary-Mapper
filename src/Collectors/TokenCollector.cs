@@ -2,6 +2,7 @@
 using PTTBM.Models;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -17,20 +18,20 @@ namespace PTTBM.Collectors
     /// - Explainable: Populate stable, security-relevant fields used for rule evaluation.
     /// - Safe: Uses SafeHandle patterns and avoids leaking native resources.
     /// </summary>
-    public sealed class TokenCollector
+    internal sealed class TokenCollector
     {
-        public TokenInfo Collect(int pid)
+        public ProcessSnapshot TryCollect(ProcessRecord process)
         {
             var warnings = new List<string>();
 
             try
             {
-                using var processHandle = OpenProcess(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+                using var processHandle = OpenProcess(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_LIMITED_INFORMATION, false, process.Pid);
                 if (processHandle is null || processHandle.IsInvalid)
-                    return new TokenInfo { Pid = pid, CollectionError = BuildLastWin32Error("OpenProcess") };
+                    return new ProcessSnapshot { Process = process, Token = new TokenInfo { Pid = process.Pid, CollectionError = BuildLastWin32Error("OpenProcess") } };
 
                 if (!OpenProcessToken(processHandle, TOKEN_ACCESS_RIGHTS.TOKEN_QUERY, out SafeTokenHandle tokenHandle))
-                    return new TokenInfo { Pid = pid, CollectionError = BuildLastWin32Error("OpenProcessToken") };
+                    return new ProcessSnapshot { Process = process, Token = new TokenInfo { Pid = process.Pid, CollectionError = BuildLastWin32Error("OpenProcessToken") } };
 
                 using (tokenHandle)
                 {
@@ -78,9 +79,9 @@ namespace PTTBM.Collectors
                     // Provenance / stats
                     var (authId, tokenId) = TryGetTokenStatistics(tokenHandle, warnings);
 
-                    return new TokenInfo
-                    {
-                        Pid = pid,
+                    return new ProcessSnapshot { Process = process, Token = new TokenInfo {
+
+                        Pid = process.Pid,
 
                         UserSid = userSid,
                         UserName = userName,
@@ -128,17 +129,14 @@ namespace PTTBM.Collectors
 
                         CollectionError = null,
                         CollectionWarnings = warnings.Count > 0 ? warnings : null
-                    };
+                    } };
                 }
             }
             catch (Exception ex)
             {
                 // Defensive: do not allow a single PID to break enumeration.
-                return new TokenInfo
-                {
-                    Pid = pid,
-                    CollectionError = $"Exception:{ex.GetType().Name}"
-                };
+                return new ProcessSnapshot { Process = process, Token = new TokenInfo 
+                    { Pid = process.Pid, CollectionError = $"Exception:{ex.GetType().Name}" } };
             }
         }
 
@@ -701,42 +699,117 @@ namespace PTTBM.Collectors
         {
             if (sid == IntPtr.Zero) return null;
 
-            if (!ConvertSidToStringSid(sid, out IntPtr strPtr) || strPtr == IntPtr.Zero)
-                return null;
-
             try
             {
-                return Marshal.PtrToStringAuto(strPtr);
+                // Defensive: prevents undefined behavior if sid is corrupt/dangling.
+                if (!IsValidSid(sid))
+                {
+                    // TODO: log: invalid SID pointer
+                    return null;
+                }
+
+                if (!ConvertSidToStringSidW(sid, out IntPtr strPtr) || strPtr == IntPtr.Zero)
+                {
+                    // TODO: log: ConvertSidToStringSidW failed + Marshal.GetLastWin32Error()
+                    return null;
+                }
+
+                try
+                {
+                    // ConvertSidToStringSidW returns a Unicode string (LPWSTR).
+                    var s = Marshal.PtrToStringUni(strPtr);
+                    return string.IsNullOrWhiteSpace(s) ? null : s;
+                }
+                finally
+                {
+                    _ = LocalFree(strPtr);
+                }
             }
-            finally
+            catch
             {
-                LocalFree(strPtr);
+                // Best-effort: never crash token collection due to SID conversion.
+                // TODO: log exception details
+                return null;
             }
         }
 
         private static string? TryLookupAccountName(IntPtr sid)
         {
-            if (sid == IntPtr.Zero) return null;
-
-            // First call to get sizes.
-            uint nameLen = 0;
-            uint domainLen = 0;
-            _ = LookupAccountSid(null, sid, null, ref nameLen, null, ref domainLen, out _);
-
-            int err = Marshal.GetLastWin32Error();
-            if (err != ERROR_INSUFFICIENT_BUFFER)
+            if (sid == IntPtr.Zero)
                 return null;
 
-            var name = new string('\0', checked((int)nameLen));
-            var domain = new string('\0', checked((int)domainLen));
+            try
+            {
+                // Defensive: avoid calling into advapi with an invalid SID pointer.
+                // This prevents a class of hard crashes when the SID pointer is corrupt/dangling.
+                if (!IsValidSid(sid))
+                {
+                    // TODO: log: invalid SID pointer / corrupt SID
+                    return null;
+                }
 
-            if (!LookupAccountSid(null, sid, name, ref nameLen, domain, ref domainLen, out _))
+                uint nameLen = 0;
+                uint domainLen = 0;
+
+                // Probe call to get required buffer sizes (expected to fail with INSUFFICIENT_BUFFER).
+                _ = LookupAccountSidW(
+                    lpSystemName: null,
+                    Sid: sid,
+                    Name: null,
+                    cchName: ref nameLen,
+                    ReferencedDomainName: null,
+                    cchReferencedDomainName: ref domainLen,
+                    peUse: out _);
+
+                int err = Marshal.GetLastWin32Error();
+
+                if (err == ERROR_NONE_MAPPED)
+                {
+                    // SID is valid but not mapped to a friendly account name (common for capability SIDs, etc.)
+                    return null;
+                }
+
+                if (err != ERROR_INSUFFICIENT_BUFFER)
+                {
+                    // Any other error: treat as non-fatal in a best-effort tool.
+                    // TODO: log: LookupAccountSidW probe failed, include err
+                    return null;
+                }
+
+                // Allocate buffers using the sizes returned by the probe call.
+                var name = new StringBuilder(checked((int)nameLen));
+                var domain = new StringBuilder(checked((int)domainLen));
+
+                if (!LookupAccountSidW(
+                    lpSystemName: null,
+                    Sid: sid,
+                    Name: name,
+                    cchName: ref nameLen,
+                    ReferencedDomainName: domain,
+                    cchReferencedDomainName: ref domainLen,
+                    peUse: out _))
+                {
+                    // TODO: log: LookupAccountSidW final call failed, include Marshal.GetLastWin32Error()
+                    return null;
+                }
+
+                // StringBuilder already contains the correct string; no need for substring logic.
+                if (domain.Length == 0)
+                    return name.ToString();
+
+                return $"{domain}\\{name}";
+            }
+            catch (Exception ex) when (
+                ex is Win32Exception ||
+                ex is ArgumentException ||
+                ex is OverflowException ||
+                ex is SEHException ||
+                ex is AccessViolationException)
+            {
+                // Best-effort: never crash the tool due to name resolution.
+                // TODO: log: exception type + message
                 return null;
-
-            var nameTrim = name.Substring(0, checked((int)nameLen));
-            var domainTrim = domain.Substring(0, checked((int)domainLen));
-
-            return string.IsNullOrWhiteSpace(domainTrim) ? nameTrim : $"{domainTrim}\\{nameTrim}";
+            }
         }
 
         private static int GetSidSubAuthorityCountManaged(IntPtr sid)
@@ -773,6 +846,7 @@ namespace PTTBM.Collectors
         private const int ERROR_INVALID_PARAMETER = 87;
         private const int ERROR_NOT_FOUND = 1168;
         private const int ERROR_INSUFFICIENT_BUFFER = 122;
+        private const int ERROR_NONE_MAPPED = 1332;
 
         private static class WELL_KNOWN_SIDS
         {
@@ -851,6 +925,10 @@ namespace PTTBM.Collectors
             protected override bool ReleaseHandle() => CloseHandle(handle);
         }
 
+
+        [DllImport("advapi32.dll", SetLastError = false)]
+        private static extern bool IsValidSid(IntPtr pSid);
+
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern SafeProcessHandle OpenProcess(PROCESS_ACCESS_RIGHTS dwDesiredAccess, bool bInheritHandle, int dwProcessId);
 
@@ -865,13 +943,23 @@ namespace PTTBM.Collectors
             int TokenInformationLength,
             out int ReturnLength);
 
-        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        /*[DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern bool LookupAccountSid(
             string? lpSystemName,
             IntPtr Sid,
             string? Name,
             ref uint cchName,
             string? ReferencedDomainName,
+            ref uint cchReferencedDomainName,
+            out SidNameUse peUse);*/
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true, ExactSpelling = true)]
+        private static extern bool LookupAccountSidW(
+            string? lpSystemName,
+            IntPtr Sid,
+            StringBuilder? Name,
+            ref uint cchName,
+            StringBuilder? ReferencedDomainName,
             ref uint cchReferencedDomainName,
             out SidNameUse peUse);
 
@@ -889,8 +977,11 @@ namespace PTTBM.Collectors
             Label
         }
 
-        [DllImport("advapi32.dll", SetLastError = true)]
-        private static extern bool ConvertSidToStringSid(IntPtr Sid, out IntPtr StringSid);
+        /*[DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool ConvertSidToStringSid(IntPtr Sid, out IntPtr StringSid);*/
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true, ExactSpelling = true)]
+        private static extern bool ConvertSidToStringSidW(IntPtr Sid, out IntPtr StringSid);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern IntPtr LocalFree(IntPtr hMem);

@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\src\\PTTBM.csproj": {}
+    "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\PTTBM.csproj": {}
   },
   "projects": {
-    "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\src\\PTTBM.csproj": {
+    "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\PTTBM.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\src\\PTTBM.csproj",
+        "projectUniqueName": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\PTTBM.csproj",
         "projectName": "PTTBM",
-        "projectPath": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\src\\PTTBM.csproj",
+        "projectPath": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\PTTBM.csproj",
         "packagesPath": "C:\\Users\\user\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\src\\obj\\",
+        "outputPath": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\user\\AppData\\Roaming\\NuGet\\NuGet.Config",

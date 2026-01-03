@@ -12,6 +12,5 @@ namespace PTTBM.Models
         public int? SessionId { get; init; }
         public string? ImagePath { get; init; }
         public string? CollectionError { get; init; }
-        public TokenInfo? Token { get; init; }
     }
 }

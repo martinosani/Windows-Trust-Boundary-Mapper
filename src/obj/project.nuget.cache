@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "iffVYj6XNHE=",
+  "dgSpecHash": "UZrnv89AzNs=",
   "success": true,
-  "projectFilePath": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\PTTBM\\PTTBM\\src\\PTTBM.csproj",
+  "projectFilePath": "C:\\Users\\user\\Desktop\\Home\\VMs\\VMShared\\Windows-Internals\\Windows-Process-Token-Trust-Boundary-Mapper\\Windows-Process-Token-Trust-Boundary-Mapper\\src\\PTTBM.csproj",
   "expectedPackageFiles": [],
   "logs": []
 }

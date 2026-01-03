@@ -1,4 +1,5 @@
 ﻿using PTTBM.Collectors;
+using PTTBM.Renders.OutputWriter;
 using System;
 
 namespace PTTBM
@@ -13,10 +14,21 @@ namespace PTTBM
             var processes = new ProcessEnumerator().Enumerate();
             Console.WriteLine($"Found {processes.Count} processes.");
 
+            var tokenCollector = new TokenCollector();
+
+            var consoleOutput = new ConsoleTableOutputWriter();
+
+            consoleOutput.WriteSummary(processes.Select(p => tokenCollector.TryCollect(p)));
+
+            /*
             foreach (var process in processes)
             {
-                Console.WriteLine($"{process.Pid,6} {process.Ppid,6} S:{process.SessionId,2} {process.Name}");
-            }
+                // var snapshot = tokenCollector.TryCollect(process);
+
+                // Renders.ProcessSnapshotConsoleRenderer.Render(snapshot);
+
+                // Console.WriteLine($"{process.Pid,6} {process.Ppid,6} S:{process.SessionId,2} {process.Name}");
+            }*/
 
 
             return 0;

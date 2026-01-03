@@ -883,7 +883,7 @@ These are derived to simplify rule writing and reporting, but they should be com
 ### `IsRestricted` (bool?)
 **Concept:** Restricted-token model (additional deny constraints).  
 **What it is:** Derived from presence of restricted SIDs (`TokenRestrictedSids`).  
-**Why it matters:** Restricted tokens are intentionally constrained; they can behave like “less than the identity suggests.”  
+**Why it matters:** Restricted tokens are intentionally constrained; they can behave like "less than the identity suggests."  
 **Security relevance:** When restricted contexts can influence unrestricted/high-trust contexts, it signals a boundary defect. Restricted tokens are also common in sandboxing and broker models.
 
 ### `RestrictedSids` (IReadOnlyList<string>?)
