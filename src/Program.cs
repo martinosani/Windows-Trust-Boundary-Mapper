@@ -15,10 +15,30 @@ namespace PTTBM
             Console.WriteLine($"Found {processes.Count} processes.");
 
             var tokenCollector = new TokenCollector();
+            var snapshots = processes.Select(p => tokenCollector.TryCollect(p)).ToList();
 
-            var consoleOutput = new ConsoleTableOutputWriter();
+            var rules = PTTBM.Collectors.Rules.DefaultRuleSet.Create();
+            var findings = PTTBM.Collectors.Rules.ProcessRuleEngine.EvaluateAll(snapshots, rules);
 
-            consoleOutput.WriteSummary(processes.Select(p => tokenCollector.TryCollect(p)));
+            PTTBM.Renders.ProcessFindingsConsoleRender.WriteSummary(findings);
+
+            if (findings.Count > 0)
+            {
+                Console.WriteLine();
+
+                var finding = findings.First(f => f.ProcessName.Contains("Avast"));
+                //PTTBM.Renders.ProcessFindingsConsoleRender.Explain(finding);
+
+                PTTBM.Renders.ProcessFindingsConsoleRender.Explain(findings[0]);
+            }
+            
+            
+            //new FindingConsoleOuputWriter()
+            //    .WriteSummary(processes.Select(p => tokenCollector.TryCollect(p)));
+
+            //var consoleOutput = new ProcessSnapshotConsoleTableOutputWriter();
+            // consoleOutput.WriteSummary(processes.Select(p => tokenCollector.TryCollect(p)));
+
 
             /*
             foreach (var process in processes)

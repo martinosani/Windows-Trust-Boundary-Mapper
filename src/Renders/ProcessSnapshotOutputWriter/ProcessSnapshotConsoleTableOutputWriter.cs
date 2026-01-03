@@ -6,11 +6,11 @@ using System.Text;
 
 namespace PTTBM.Renders.OutputWriter
 {
-    internal class ConsoleTableOutputWriter : IOutputWriter
+    internal sealed class ProcessSnapshotConsoleTableOutputWriter : IOutputWriter
     {
         public OutputOptions Options { get; }
 
-        public ConsoleTableOutputWriter(OutputOptions? options = null)
+        public ProcessSnapshotConsoleTableOutputWriter(OutputOptions? options = null)
         {
             Options = options ?? new OutputOptions();
         }
