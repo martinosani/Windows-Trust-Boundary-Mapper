@@ -38,12 +38,20 @@ namespace WTBM.Collectors
                     if (ProcessIdToSessionId(pid, out uint sid))
                         sessionId = unchecked((int)sid);
 
+                    string? imagePath = null;
+                    string? collectionError = null;
+
+                    if (!TryGetImagePath(pid, out imagePath, out var pathError))
+                        collectionError = pathError;
+
                     results.Add(new ProcessRecord
                     {
                         Pid = pid,
                         Ppid = ppid,
                         Name = entry.szExeFile ?? string.Empty,
-                        SessionId = sessionId
+                        SessionId = sessionId,
+                        ImagePath = imagePath,
+                        CollectionError = collectionError
                     });
 
                 } while (Process32Next(snapshot, ref entry));
@@ -56,9 +64,46 @@ namespace WTBM.Collectors
             return results;
         }
 
+        // =========================
+        // ImagePath (best-effort)
+        // =========================
+
+        private static bool TryGetImagePath(int pid, out string? imagePath, out string? error)
+        {
+            imagePath = null;
+            error = null;
+
+            IntPtr hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+            if (hProcess == IntPtr.Zero)
+            {
+                error = $"OpenProcess:{Marshal.GetLastWin32Error()}";
+                return false;
+            }
+
+            try
+            {
+                var sb = new StringBuilder(512);
+                int size = sb.Capacity;
+
+                if (!QueryFullProcessImageName(hProcess, 0, sb, ref size))
+                {
+                    error = $"QueryFullProcessImageName:{Marshal.GetLastWin32Error()}";
+                    return false;
+                }
+
+                imagePath = sb.ToString();
+                return true;
+            }
+            finally
+            {
+                CloseHandle(hProcess);
+            }
+        }
+
         // ===== Win32 Interop =====
 
         private const uint TH32CS_SNAPPROCESS = 0x00000002;
+        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
         private static readonly IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
 
         [DllImport("kernel32.dll", SetLastError = true)]
@@ -75,6 +120,16 @@ namespace WTBM.Collectors
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool ProcessIdToSessionId(int dwProcessId, out uint pSessionId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool QueryFullProcessImageName(
+            IntPtr hProcess,
+            int dwFlags,
+            StringBuilder lpExeName,
+            ref int lpdwSize);
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct PROCESSENTRY32

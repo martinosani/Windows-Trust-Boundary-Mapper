@@ -63,7 +63,7 @@ namespace WTBM.Renders.OutputWriter
             var p = s.Process;
             var t = s.Token;
 
-            var il = t?.IntegrityLevel.ToString() ?? "?";
+            var il = s.EffectiveIntegrityLevel.ToString() ?? "?";
             var uac = t?.ElevationType.ToString() ?? "?";
             var appc = BoolShort(t?.IsAppContainer);
             var restr = BoolShort(t?.IsRestricted);

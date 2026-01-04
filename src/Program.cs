@@ -10,27 +10,26 @@ namespace WTBM
     {
         static int Main(string[] args)
         {
-            Console.WriteLine("PTTBM - Process & Token Trust Boundary Mapper");
+            Console.WriteLine("WTBM - Process & Token Trust Boundary Mapper");
             Console.WriteLine("Initializing...");
 
             var processes = new ProcessEnumerator().Enumerate();
-            Console.WriteLine($"Found {processes.Count} processes.");
-
             var tokenCollector = new TokenCollector();
             var snapshots = processes.Select(p => tokenCollector.TryCollect(p)).ToList();
 
             var rules = DefaultRuleSet.Create();
             var findings = RuleEngine.EvaluateAll(snapshots, rules);
 
-            FindingsConsoleWriter.WriteSummary(findings);
+            FindingsConsoleWriter.WriteSummary(findings, snapshots);
 
             if (findings.Count > 0)
             {
                 Console.WriteLine();
 
-                FindingsConsoleWriter.Explain(findings[0]);
+                FindingsConsoleWriter.Explain(findings[0], snapshots);
             }
-           
+
+            Console.ReadLine();
 
 
             return 0;

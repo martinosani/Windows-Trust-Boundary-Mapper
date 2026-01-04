@@ -9,5 +9,9 @@ namespace WTBM.Domain.Processes
         public required ProcessRecord Process { get; init; }
         public required TokenInfo Token { get; init; }
 
+        public IntegrityLevel EffectiveIntegrityLevel =>
+            Token?.IntegrityLevel ?? IntegrityLevel.Unknown;
+
+
     }
 }

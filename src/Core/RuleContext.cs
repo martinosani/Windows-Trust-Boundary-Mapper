@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using WTBM.Domain.IPC;
 using WTBM.Domain.Processes;
 
 namespace WTBM.Core
@@ -8,13 +9,22 @@ namespace WTBM.Core
     internal sealed class RuleContext
     {
         public IReadOnlyList<ProcessSnapshot> Snapshots { get; }
+
+        public PrivilegeStats PrivilegeStats { get; }
+
+        public IReadOnlyList<NamedPipeEndpoint> NamedPipes { get; init; }
+            = Array.Empty<NamedPipeEndpoint>();
+        
         public IReadOnlyDictionary<int, ProcessSnapshot> ByPid { get; }
+        
         public IReadOnlyDictionary<int, List<ProcessSnapshot>> ChildrenByPpid { get; }
+        
         public IReadOnlyDictionary<string, List<ProcessSnapshot>> ByAuthenticationId { get; }
 
         public RuleContext(IReadOnlyList<ProcessSnapshot> snapshots)
         {
             Snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
+            PrivilegeStats = PrivilegeStats.Build(Snapshots);
 
             // PID is unique in a point-in-time snapshot (best-effort).
             ByPid = snapshots
@@ -54,5 +64,7 @@ namespace WTBM.Core
             => ByAuthenticationId.TryGetValue(authId, out var list)
                 ? list
                 : Enumerable.Empty<ProcessSnapshot>();
+
+        
     }
 }

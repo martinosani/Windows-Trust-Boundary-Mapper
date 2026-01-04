@@ -30,7 +30,7 @@ namespace WTBM.Renders.OutputWriter
             // Stable triage ordering: session, integrity (desc), name, pid.
             var ordered = list
                 .OrderBy(s => s.Process.SessionId ?? int.MaxValue)
-                .ThenByDescending(s => SeverityRankFromIntegrity(s.Token.IntegrityLevel))
+                .ThenByDescending(s => SeverityRankFromIntegrity(s.EffectiveIntegrityLevel))
                 .ThenBy(s => s.Process.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(s => s.Process.Pid)
                 .ToList();
@@ -86,7 +86,7 @@ namespace WTBM.Renders.OutputWriter
             new("PID",      6, s => s.Process.Pid.ToString()),
             new("PPID",     6, s => s.Process.Ppid.ToString()),
             new("Sess",     4, s => FormatNullableInt(s.Process.SessionId)),
-            new("IL",       6, s => FormatIntegrity(s.Token.IntegrityLevel)),
+            new("IL",       6, s => FormatIntegrity(s.EffectiveIntegrityLevel)),
             new("Name",  NameW, s => Safe(s.Process.Name)),
         };
 
@@ -175,7 +175,7 @@ namespace WTBM.Renders.OutputWriter
 
             Console.WriteLine(
                 $"{PadLeft(s.Process.Pid.ToString(), 6)}  {PadLeft(s.Process.Ppid.ToString(), 6)}  " +
-                $"{PadRight(FormatNullableInt(s.Process.SessionId), 4)}  {PadRight(FormatIntegrity(s.Token.IntegrityLevel), 6)}  " +
+                $"{PadRight(FormatNullableInt(s.Process.SessionId), 4)}  {PadRight(FormatIntegrity(s.EffectiveIntegrityLevel), 6)}  " +
                 $"{PadRight(name, 24)}  <rendering error>");
         }
 
