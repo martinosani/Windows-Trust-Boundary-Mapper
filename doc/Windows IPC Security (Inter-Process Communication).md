@@ -104,37 +104,292 @@ This section focuses on **how IPC mechanisms fail**, not just how they work.
 
 #### What they are
 Named pipes are kernel-managed IPC objects that implement a client/server byte-stream or message-based communication model.  
-They are exposed through the Windows object namespace (e.g. `\\.\pipe\Name`) and support multiple clients connecting to a single server endpoint.
+They are exposed to userland via the Win32 path `\\.\pipe\<Name>`. Internally, they exist as objects under the NT object namespace as `\Device\NamedPipe\<Name>`.
 
-Named pipes are widely used for **local IPC**, not for networking, and are a foundational building block for many broker and service architectures.
+A named pipe is not just “a file-like handle”. It has two related but distinct aspects:
+
+- **Namespace object (the name)**  
+  The entry under `\Device\NamedPipe\<Name>` is a kernel object with a security descriptor (owner, DACL, label).  
+  This is what you want when you do surface mapping and access control analysis.
+
+- **Server instances (the endpoints)**  
+  A pipe name can have one or more server instances created by the server using `CreateNamedPipe`.  
+  Clients connect to an available instance. Many behaviors you observe (including `PIPE_BUSY`) are about instance availability, not about the absence of the name.
+
+This distinction matters for tooling and research because you can often enumerate names, but querying metadata may be blocked by runtime instance state.
+
+---
 
 #### Why they matter
-They are widely used by:
-- Windows services
-- security software
-- update agents
-- enterprise applications
-- sandbox brokers
+Named pipes are pervasive in Windows userland software and are often used to connect:
+- a low-privilege UI or client component
+- to a higher-privilege service or broker component
 
-Named pipes are one of the most common **practical** privilege boundaries in Windows userland software.
+That makes named pipes one of the most common practical privilege boundaries in Windows applications.
 
-#### Security properties that matter
-- **Pipe object DACL** (who can connect)
-- **Impersonation behavior (server-side)** and impersonation level
-- **Authorization model** (explicit checks before privileged operations)
-- **Protocol design** and parsing correctness
-- **Object namespace usage** (global vs session-local; `Global\*` patterns)
-- **Instance and lifetime handling** (DoS and race opportunities)
+In vulnerability research, pipes show up repeatedly because the most common failures are *design and authorization errors*, not complex memory corruption:
+- A caller is able to reach an endpoint it was not meant to reach.
+- The server performs privileged actions based on untrusted inputs.
+- Identity is not correctly bound to intent.
 
-#### Common failure modes
-- Pipe connectable by lower-trust callers than intended (overly permissive DACL)
-- Server impersonates client but performs actions incorrectly (confused deputy)
-- Client-controlled paths/object names used without canonicalization
-- Identity not bound to intent (authorization missing or incomplete)
-- “Local-only” treated as equivalent to “trusted”
-- Pipe squatting / pre-creation patterns (less common, but relevant in named-object contexts)
+---
+
+#### Security properties that matter (what to extract and why)
+For each pipe you enumerate, the goal is to turn a **name** into an evidence-backed **reachability and trust hypothesis**.
+
+The highest-value metadata is:
+
+- **Owner**
+  - Helps attribute the pipe to a principal (SYSTEM, service SID, per-user component).
+  - Useful for prioritization: privileged owner often correlates with privileged behavior.
+
+- **DACL (Discretionary ACL)**
+  - Core reachability signal: who can open/connect.  
+  - Overly broad DACLs are common and are often accidental.
+  - In triage, focus on identities that represent lower-trust callers (e.g., `Users`, `Authenticated Users`, `Everyone`, low-priv service accounts).
+
+- **SDDL (string form of the SD)**
+  - Stable representation: useful for baselines, diffing, and reporting.
+  - Lets you compare configurations across machines/builds without losing detail.
+
+- **Mandatory Integrity Label (MIL)**
+  - Adds MIC context (Low IL, AppContainer, etc.).
+  - Often best-effort: retrieving it can require `ACCESS_SYSTEM_SECURITY` and the right privileges.
+  - Missing MIL data is not evidence of safety; it may be a visibility limitation.
+
+- **Name characteristics and scope**
+  - Stable service-like names often represent long-lived interfaces.
+  - Random/GUID-like names often indicate ephemeral broker channels.
+  - Session scoping matters for multi-session systems; a pipe surface may be different per session/user.
+
+- **Operational state**
+  - Some pipes exist but will appear “busy” during the query window due to all instances being occupied.
+  - A correct mapper must represent this state explicitly.
+
+---
+
+#### Common failure modes (design-level)
+Common high-value failure patterns seen in real-world LPEs and broker escapes:
+
+- **Overly permissive DACL**: low-trust callers can reach a privileged endpoint.
+- **Confused deputy**:
+  - Server impersonates client and performs privileged actions incorrectly, or
+  - Server does not impersonate when it should, and treats requests as trusted.
+- **Authorization not bound to identity**:
+  - Server authenticates but does not authorize per-operation.
+  - Identity is checked once but not tied to the requested action or object.
+- **Untrusted path/object handling**:
+  - Client-controlled filesystem paths, registry paths, object names used without canonicalization.
+  - TOCTOU when validation and use occur in different contexts or with different path interpretations.
+- **Protocol parsing mistakes**:
+  - Length/format confusion, missing bounds checks, inconsistent framing across versions.
+- **Instance/lifetime handling**:
+  - Race windows, denial-of-service, or state confusion triggered by repeated connects/disconnects.
 
 **Named pipes are one of the most common roots of confused-deputy LPEs.**
+
+---
+
+## Enumeration and extraction (tooling strategy)
+
+#### Phase A — Enumerate names
+A practical enumerator lists pipe names via the Win32 namespace:
+- `\\.\pipe\*`
+
+This is a snapshot of currently visible names. Pipes can appear/disappear quickly. Treat absence as “not observed”, not “does not exist”.
+
+---
+
+#### Phase B — Enrich each pipe with security metadata
+You generally need multiple strategies because success depends on runtime state and privileges.
+
+### Strategy 1: NT object path query (`\Device\NamedPipe\<Name>`)
+**Goal:** retrieve owner/DACL/label directly from the kernel object.
+
+- Open `\Device\NamedPipe\<Name>` with `READ_CONTROL` to obtain owner/group/DACL.
+- Query SD using `NtQuerySecurityObject`.
+- If you need the integrity label, request `LABEL_SECURITY_INFORMATION` (may require `ACCESS_SYSTEM_SECURITY`).
+
+**Why this is useful**
+- Direct kernel object semantics.
+- Clean NTSTATUS failure codes (good for deterministic diagnostics).
+- Good match for a research tool that wants explainable outcomes.
+
+**Common failure**
+- `STATUS_PIPE_BUSY (0xC00000AC)` when no instance is available at that moment.
+
+---
+
+### Strategy 2: Win32 fallback (`\\.\pipe\<Name>`)
+**Goal:** retrieve owner/DACL/label using a higher-level API.
+
+- Call `GetNamedSecurityInfo` on `\\.\pipe\<Name>`.
+- If it fails with `ERROR_PIPE_BUSY (231)`, call `WaitNamedPipe` with a short timeout and retry.
+
+**Why this is useful**
+- Often succeeds in cases where the NT path does not.
+- Practical for broad inventory.
+
+**Common failure**
+- `WaitNamedPipe` timeout (`ERROR_SEM_TIMEOUT (121)`), indicating the pipe remained busy in the allowed window.
+
+---
+
+### Strategy 3: Multi-pass sampling (recommended for coverage)
+If you need higher coverage without long blocking waits:
+- Run multiple passes over the pipe list (e.g., 2–5 passes).
+- Space passes (e.g., 100–500ms).
+- Merge results and keep the “best” enrichment per pipe.
+
+This often improves coverage for hot pipes where contention is transient.
+
+---
+
+### Strategy 4: Privileged mode (for label and restricted pipes)
+If you need MIL reliably or want to reduce `ACCESS_DENIED`:
+- Run elevated.
+- Optionally enable the relevant privileges for SACL/label reads (policy-dependent).
+
+Do not silently assume elevated access. Your tool should record whether it was run elevated and what information was actually obtainable.
+
+---
+
+## PIPE_BUSY is normal (how to handle it correctly)
+
+In live systems, it is common to see:
+- NT open fail with `STATUS_PIPE_BUSY (0xC00000AC)`
+- Win32 security query fail with `ERROR_PIPE_BUSY (231)`
+- `WaitNamedPipe` timeout with `ERROR_SEM_TIMEOUT (121)`
+
+This does **not** mean:
+- the pipe has no security descriptor, or
+- the pipe is not reachable, or
+- the endpoint is safe.
+
+It means that during the observation window, no instance was available to service the open/query path used.
+
+**Tooling requirement:** treat busy as a first-class state, not as “unknown error”.
+- Apply bounded retries (backoff on NT, `WaitNamedPipe` on Win32).
+- Record a structured status: `ok`, `busy`, `denied`, `error`.
+- Keep the raw status code (NTSTATUS / Win32 error) for explainability.
+
+---
+
+#### Why `PIPE_BUSY` exists (kernel-level intuition)
+`PIPE_BUSY` does not mean that the pipe name is unavailable.  
+It means that **all server instances associated with that name are currently engaged**.
+
+Internally:
+- The name exists in the `\Device\NamedPipe` namespace.
+- One or more server instances were created with a maximum instance count.
+- Client connections are bound to instances, not to the name itself.
+
+Security descriptor queries often require opening the object in a way that interacts with instance state.  
+If no instance is available to service the open, the system returns `PIPE_BUSY`.
+
+This explains why:
+- Enumeration succeeds (the name is visible),
+- Security queries fail transiently,
+- Retrying later may succeed without any configuration change.
+
+From a research perspective, this is a **liveness constraint**, not a protection mechanism.
+
+---
+
+## How to interpret failures (research correctness)
+
+- **`PIPE_BUSY`**
+  - Operational contention.
+  - Not evidence of safety.
+  - Usually addressed by retries, multi-pass sampling, or longer timeouts.
+
+- **`ACCESS_DENIED`**
+  - Visibility boundary.
+  - Not evidence of safety; it may indicate the SD is restricted to other principals.
+  - In reporting, treat as “not observable under current token”.
+
+- **Parsing / API errors**
+  - Tool defects or incorrect assumptions.
+  - Must be fixed before drawing conclusions.
+
+A tool that collapses these into “no data” produces misleading output.
+
+---
+
+## Vulnerability research workflow (how to use the extracted data)
+
+### Step 1: Triage for reachability
+Start with the DACL:
+- Identify principals representing low-trust callers (`Users`, `Authenticated Users`, `Everyone`, broad groups).
+- Look for overly broad allow ACEs on the pipe object.
+
+This is the fastest way to identify “unexpected caller can reach server”.
+
+### Step 2: Attribute the endpoint
+Use owner information and name patterns to form hypotheses:
+- Service/SYSTEM ownership → likely privileged server.
+- Stable naming → more likely long-lived interface worth deeper study.
+- Random naming → often ephemeral broker channel; may still be relevant but requires different collection tactics.
+
+### Step 3: Validate server behavior (beyond ACLs)
+ACL reachability is only one side. The core research questions are:
+- Does the server impersonate? At what level?
+- Is authorization checked per operation?
+- Are client-controlled paths/object names used safely?
+- Are privileged actions performed with correct identity binding?
+
+The pipe SD tells you who can talk. The vulnerability usually lies in what happens after the server accepts input.
+
+### Step 4: Feed tooling improvements back into collection
+If a high-value pipe is persistently busy:
+- increase retry window for that specific target,
+- run multi-pass sampling,
+- or schedule observation when the system is less active.
+
+For a research tool, it is better to report “busy, not observed” than to silently drop it.
+
+---
+
+#### Representing extraction outcomes explicitly
+For research correctness, the tool should not collapse all failures into “no data”.
+
+Each pipe should have an explicit extraction outcome, for example:
+- `Ok` – security descriptor retrieved and parsed
+- `Busy` – pipe exists but all instances were busy during the observation window
+- `Denied` – access denied under current token/privileges
+- `Error` – unexpected API or parsing failure
+
+Storing this state explicitly prevents misinterpretation and allows:
+- multi-pass aggregation,
+- privilege-context comparison,
+- accurate reporting of visibility gaps.
+
+---
+
+#### Implementation notes (C# tool design)
+To keep the tool reliable and research-friendly:
+
+- Always store:
+  - pipe name, NT path and Win32 path,
+  - owner SID + resolved name,
+  - SDDL,
+  - parsed DACL ACE list (and keep raw access mask),
+  - MIL if available,
+  - query status (`ok`, `busy`, `denied`, `error`) + raw code and message.
+
+- Implement bounded retries and make them configurable:
+  - Win32: retries + `WaitNamedPipe` timeout
+  - NT: retries + backoff
+  - Multi-pass: number of passes + delay
+
+- Keep trace output focused on:
+  - which strategy path is used,
+  - where it failed (open vs query vs parse),
+  - whether failure is `busy`, `denied`, or other.
+
+- Do not treat missing label as failure. It is commonly a privilege/visibility limitation.
+
+**Named pipes are one of the most common roots of confused-deputy LPEs because they frequently bridge low-trust reachability to high-authority execution.**
 
 ---
 

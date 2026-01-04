@@ -6,6 +6,8 @@ namespace WTBM.Domain.IPC
 {
     internal sealed class NamedPipeSecurityInfo
     {
+        public string? OwnerSid { get; init; }
+        public string? OwnerName { get; init; }
         public string? Sddl { get; init; }
         public IReadOnlyList<AceInfo>? Dacl { get; init; }
         public MandatoryLabelInfo? MandatoryLabel { get; init; } // parsed from SACL (best-effort)

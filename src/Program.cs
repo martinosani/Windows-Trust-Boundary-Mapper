@@ -19,8 +19,7 @@ namespace WTBM
             var snapshots = processes.Select(p => tokenCollector.TryCollect(p)).ToList();
 
             var namedPipes = new NamedPipeEnumerator().Enumerate();
-            
-            // NamedPipesConsoleWriter.WriteSummary(namedPipes, namedPipesSecurityInfo);
+            NamedPipesConsoleWriter.WriteSummary(namedPipes);
 
             var rules = DefaultRuleSet.Create();
             var findings = RuleEngine.EvaluateAll(snapshots, namedPipes,  rules);
@@ -35,8 +34,9 @@ namespace WTBM
                 FindingsConsoleWriter.Explain(findings[0], snapshots);
             }*/
 
-            Console.ReadLine();
 
+            Console.WriteLine("Press ENTER to exit ...");
+            Console.ReadLine();
 
             return 0;
         }

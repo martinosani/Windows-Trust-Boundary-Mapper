@@ -31,7 +31,7 @@ namespace WTBM.Collectors.IPC
         /// Creates an enumerator with default security collector and conservative concurrency.
         /// </summary>
         public NamedPipeEnumerator()
-            : this(new NamedPipeSecurityCollector(), maxDegreeOfParallelism: 6)
+            : this(new NamedPipeSecurityCollector(), maxDegreeOfParallelism: 1)
         {
         }
 

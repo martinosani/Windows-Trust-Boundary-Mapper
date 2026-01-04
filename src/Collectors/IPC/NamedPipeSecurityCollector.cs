@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
@@ -12,167 +11,530 @@ namespace WTBM.Collectors.IPC
 {
     internal sealed class NamedPipeSecurityCollector
     {
-        public IReadOnlyList<NamedPipeSecurityInfo> TryCollect(IReadOnlyList<NamedPipeRef> namedPipes)
+        private static readonly int Win32BusyRetryCount = ParseEnvInt("WTBM_NPSEC_WIN32_BUSY_RETRIES", 3);
+        private static readonly int Win32BusyWaitMs = ParseEnvInt("WTBM_NPSEC_WIN32_BUSY_WAIT_MS", 10);
+
+        private static readonly int NtBusyRetryCount = ParseEnvInt("WTBM_NPSEC_NT_BUSY_RETRIES", 2);
+        private static readonly int NtBusyBackoffMs = ParseEnvInt("WTBM_NPSEC_NT_BUSY_BACKOFF_MS", 5);
+
+        private static int ParseEnvInt(string name, int fallback)
         {
-            return namedPipes.Select(n => TryCollect(n)).ToList();
+            var v = Environment.GetEnvironmentVariable(name);
+            return int.TryParse(v, out var x) && x >= 0 ? x : fallback;
         }
 
-        /// <summary>
-        /// Collects Security Descriptor information for a named pipe object using GetNamedSecurityInfo:
-        /// - Tries NT namespace path first (\Device\NamedPipe\name)
-        /// - Falls back to Win32 path (\\.\pipe\name)
-        /// - Attempts DACL + Mandatory Integrity Label (LABEL/SACL) first; falls back to DACL-only on AccessDenied.
-        /// This avoids CreateFile() to prevent blocking or handshake side effects with pipe servers.
-        /// </summary>
-        public NamedPipeSecurityInfo TryCollect(NamedPipeRef pipe)
+        // ============================================================
+        // Trace (console) - enable with env var WTBM_TRACE_NPSEC=1/true
+        // ============================================================
+
+        private static readonly bool TraceEnabled = true;
+            //string.Equals(Environment.GetEnvironmentVariable("WTBM_TRACE_NPSEC"), "1", StringComparison.OrdinalIgnoreCase) ||
+            //string.Equals(Environment.GetEnvironmentVariable("WTBM_TRACE_NPSEC"), "true", StringComparison.OrdinalIgnoreCase);
+
+        private static void Trace(string phase, string message, string? path = null, int? status = null, Exception? ex = null)
+        {
+            if (!TraceEnabled) return;
+
+            var sb = new StringBuilder(256);
+            sb.Append(DateTime.UtcNow.ToString("o"));
+            sb.Append(" [NamedPipeSecurityCollector] ");
+            sb.Append(phase);
+            sb.Append(" - ");
+            sb.Append(message);
+
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                sb.Append(" | path=");
+                sb.Append(path);
+            }
+
+            if (status is not null)
+            {
+                sb.Append(" | status=");
+                sb.Append(NtStatusName(status.Value));
+            }
+
+            if (ex is not null)
+            {
+                sb.Append(" | ex=");
+                sb.Append(ex.GetType().Name);
+                sb.Append(":");
+                sb.Append(ex.Message);
+            }
+
+            Console.WriteLine(sb.ToString());
+        }
+
+        public NamedPipeSecurityInfo TryCollect(NamedPipeRef pipe, bool includeMandatoryLabel = true)
         {
             if (pipe is null) throw new ArgumentNullException(nameof(pipe));
-            if (string.IsNullOrWhiteSpace(pipe.Name))
-                return new NamedPipeSecurityInfo { Error = "InvalidPipeName" };
-
-            // Primary + fallback paths (best-effort)
-            var candidates = new[]
-            {
-                pipe.NtPath,    // \Device\NamedPipe\<name>
-                pipe.Win32Path  // \\.\pipe\<name>
-            }
-            .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-            if (candidates.Length == 0)
-                return new NamedPipeSecurityInfo { Error = "NoCandidatePaths" };
 
             // Strategy:
-            // 1) Try DACL + LABEL (SACL) for Mandatory Integrity Label (MIL)
-            // 2) If AccessDenied, retry DACL-only (still valuable for reachability)
-            // 3) If name resolution fails, try next candidate path
-            var lastError = "UnknownError";
+            // 1) Prefer NT path (\Device\NamedPipe\foo) via NtOpenFile + NtQuerySecurityObject.
+            // 2) Fallback to Win32 path (\\.\pipe\foo) via GetNamedSecurityInfo (legacy compatibility).
+            Trace("TryCollect", "start", pipe.NtPath);
 
-            foreach (var path in candidates)
+            var nt = TryCollectViaNt(pipe.NtPath, includeMandatoryLabel);
+            if (nt.Info is not null)
             {
-                // 1) DACL + LABEL
-                var r1 = TryQuerySecurity(path, includeMandatoryLabel: true);
-                if (r1.Success)
-                    return r1.Info!;
-
-                lastError = r1.Error ?? lastError;
-
-                // If we could not read LABEL/SACL due to AccessDenied, retry DACL-only for the same path.
-                if (r1.ErrorCode == ERROR_ACCESS_DENIED)
-                {
-                    var r2 = TryQuerySecurity(path, includeMandatoryLabel: false);
-                    if (r2.Success)
-                        return r2.Info!;
-
-                    lastError = r2.Error ?? lastError;
-                }
-
-                // If the name isn't valid/resolvable, continue with the next candidate.
-                if (r1.ErrorCode == ERROR_INVALID_NAME ||
-                    r1.ErrorCode == ERROR_FILE_NOT_FOUND ||
-                    r1.ErrorCode == ERROR_PATH_NOT_FOUND)
-                {
-                    continue;
-                }
+                Trace("TryCollect", "NT success", pipe.NtPath);
+                return nt.Info;
             }
 
+            Trace("TryCollect", $"NT failed: {nt.Error}", pipe.NtPath);
+
+            var win32 = TryCollectViaWin32(pipe.Win32Path, includeMandatoryLabel);
+            if (win32.Info is not null)
+            {
+                Trace("TryCollect", "Win32 success", pipe.Win32Path);
+                return win32.Info;
+            }
+
+            Trace("TryCollect", $"Win32 failed: {win32.Error}", pipe.Win32Path);
+
+            // Return the "best" error we have.
             return new NamedPipeSecurityInfo
             {
-                Error = lastError
+                Error = nt.Error ?? win32.Error ?? "SecurityQuery:UnknownFailure"
             };
         }
 
-        private static QueryResult TryQuerySecurity(string objectName, bool includeMandatoryLabel)
+        // =========================
+        // NT path implementation
+        // =========================
+
+        private static QueryAttempt TryCollectViaNt(string ntObjectPath, bool includeMandatoryLabel)
         {
-            var flags = SECURITY_INFORMATION.DACL_SECURITY_INFORMATION;
+            Trace("NT", "begin", ntObjectPath);
 
-            // LABEL_SECURITY_INFORMATION requests integrity label ACEs (SYSTEM_MANDATORY_LABEL_ACE) in SACL.
-            // This may require higher privileges on some objects; we handle AccessDenied by falling back.
+            // Open with READ_CONTROL first (covers Owner/Group/DACL).
+            var infoFlags = SECURITY_INFORMATION.OWNER_SECURITY_INFORMATION
+                          | SECURITY_INFORMATION.GROUP_SECURITY_INFORMATION
+                          | SECURITY_INFORMATION.DACL_SECURITY_INFORMATION;
+
+            var (sdOwnerDacl, err1) = TryQuerySecurityDescriptorNt(ntObjectPath, desiredAccess: READ_CONTROL, infoFlags);
+            if (sdOwnerDacl is null)
+            {
+                Trace("NT", $"owner/dacl query failed: {err1}", ntObjectPath);
+                return QueryAttempt.Fail($"NT:{err1}");
+            }
+
+            // Optionally: try query label. This may require ACCESS_SYSTEM_SECURITY and SeSecurityPrivilege.
+            byte[]? sdWithLabel = null;
             if (includeMandatoryLabel)
-                flags |= SECURITY_INFORMATION.LABEL_SECURITY_INFORMATION;
+            {
+                // NOTE:
+                // - LABEL_SECURITY_INFORMATION retrieves the integrity label (MIL) if available.
+                // - Some systems require ACCESS_SYSTEM_SECURITY; some allow it with READ_CONTROL.
+                var labelFlags = infoFlags | SECURITY_INFORMATION.LABEL_SECURITY_INFORMATION;
 
-            IntPtr pSecurityDescriptor = IntPtr.Zero;
+                // Try with ACCESS_SYSTEM_SECURITY first, fallback to READ_CONTROL only (best-effort).
+                (sdWithLabel, var err2) = TryQuerySecurityDescriptorNt(
+                    ntObjectPath,
+                    desiredAccess: READ_CONTROL | ACCESS_SYSTEM_SECURITY,
+                    labelFlags);
+
+                if (sdWithLabel is null)
+                {
+                    Trace("NT", $"label query (with ACCESS_SYSTEM_SECURITY) failed: {err2}", ntObjectPath);
+
+                    // try again without ACCESS_SYSTEM_SECURITY (best-effort)
+                    (sdWithLabel, var err3) = TryQuerySecurityDescriptorNt(
+                        ntObjectPath,
+                        desiredAccess: READ_CONTROL,
+                        labelFlags);
+
+                    if (sdWithLabel is null)
+                        Trace("NT", $"label query (READ_CONTROL only) failed: {err3}", ntObjectPath);
+                }
+            }
+
+            // Parse base SD (Owner/Group/DACL) from sdOwnerDacl.
+            // If label succeeded, parse from sdWithLabel instead (contains everything).
+            var sdToParse = sdWithLabel ?? sdOwnerDacl;
 
             try
             {
-                var err = GetNamedSecurityInfoW(
-                    objectName,
-                    SE_OBJECT_TYPE.SE_FILE_OBJECT,
-                    flags,
-                    out _,
-                    out _,
-                    out _,
-                    out _,
-                    out pSecurityDescriptor);
+                var raw = new RawSecurityDescriptor(sdToParse, 0);
 
-                if (err != 0)
+                var ownerSid = raw.Owner?.Value;
+                var ownerName = TryResolveSidToName(raw.Owner);
+
+                var sddl = raw.GetSddlForm(AccessControlSections.All);
+
+                var dacl = raw.DiscretionaryAcl is null
+                    ? null
+                    : ParseDacl(raw.DiscretionaryAcl);
+
+                MandatoryLabelInfo? mil = null;
+                if (includeMandatoryLabel && raw.SystemAcl is not null)
                 {
-                    return QueryResult.Fail(
-                        errorCode: err,
-                        error: $"{Win32ErrorName(err)}:{Stage(flags)}");
+                    mil = TryParseMandatoryLabel(raw.SystemAcl);
                 }
 
-                // Convert SD -> SDDL for explainability and easier parsing.
-                if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(
-                        pSecurityDescriptor,
-                        SDDL_REVISION_1,
-                        flags,
-                        out var pSddl,
-                        out _))
+                Trace("NT", "parsed ok", ntObjectPath);
+
+                return QueryAttempt.Ok(new NamedPipeSecurityInfo
                 {
-                    var werr = Marshal.GetLastWin32Error();
-                    return QueryResult.Fail(werr, $"{Win32ErrorName(werr)}:ConvertToSddl:{Stage(flags)}");
-                }
-
-                try
-                {
-                    var sddl = Marshal.PtrToStringUni(pSddl) ?? string.Empty;
-
-                    // Parse DACL and (best-effort) MIL from SDDL using RawSecurityDescriptor.
-                    var raw = new RawSecurityDescriptor(sddl);
-
-                    var dacl = raw.DiscretionaryAcl is null
-                        ? null
-                        : ParseDacl(raw.DiscretionaryAcl);
-
-                    MandatoryLabelInfo? mil = null;
-                    if (includeMandatoryLabel && raw.SystemAcl is not null)
-                    {
-                        mil = TryParseMandatoryLabel(raw.SystemAcl);
-                    }
-
-                    var info = new NamedPipeSecurityInfo
-                    {
-                        Sddl = sddl,
-                        Dacl = dacl,
-                        MandatoryLabel = mil,
-                        Error = null
-                    };
-
-                    return QueryResult.Ok(info);
-                }
-                finally
-                {
-                    LocalFree(pSddl);
-                }
+                    OwnerSid = ownerSid,
+                    OwnerName = ownerName,
+                    Sddl = sddl,
+                    Dacl = dacl,
+                    MandatoryLabel = mil,
+                    Error = null
+                });
             }
             catch (Exception ex)
             {
-                // Collector must be best-effort: no exceptions should break the run.
-                return QueryResult.Fail(
-                    errorCode: -1,
-                    error: $"Exception:{ex.GetType().Name}");
+                Trace("NT", "parse failed", ntObjectPath, ex: ex);
+                return QueryAttempt.Fail($"NT:Parse:{ex.GetType().Name}");
+            }
+        }
+
+        private static (byte[]? securityDescriptor, string? error) TryQuerySecurityDescriptorNt(
+            string ntObjectPath,
+            uint desiredAccess,
+            SECURITY_INFORMATION infoFlags)
+        {
+            SafeNtHandle? handle = null;
+
+            try
+            {
+                int status;
+
+                for (int attempt = 0; ; attempt++)
+                {
+                    status = NtOpenNamedPipe(ntObjectPath, desiredAccess, out handle);
+                    if (status == 0) break;
+
+                    if (IsPipeBusyNt(status) && attempt < NtBusyRetryCount)
+                    {
+                        Trace("NT",
+                            $"STATUS_PIPE_BUSY -> backoff {NtBusyBackoffMs}ms then retry (attempt {attempt + 1}/{NtBusyRetryCount})",
+                            ntObjectPath,
+                            status: status);
+
+                        System.Threading.Thread.Sleep(NtBusyBackoffMs);
+                        handle?.Dispose();
+                        handle = null;
+                        continue;
+                    }
+
+                    return (null, $"NtOpenFile:{NtStatusName(status)}");
+                }
+
+                // Query pattern: call NtQuerySecurityObject with growing buffer.
+                var bufferSize = 4096u;
+
+                for (int attempt = 0; attempt < 6; attempt++)
+                {
+                    var buf = Marshal.AllocHGlobal((int)bufferSize);
+                    try
+                    {
+                        uint returned = 0;
+                        status = NtQuerySecurityObject(handle.DangerousGetHandle(), infoFlags, buf, bufferSize, out returned);
+
+                        if (status == STATUS_BUFFER_TOO_SMALL || status == STATUS_BUFFER_OVERFLOW)
+                        {
+                            // Use returned if plausible, otherwise grow exponentially.
+                            var next = returned > bufferSize ? returned : bufferSize * 2;
+                            bufferSize = Math.Min(next, 1_048_576u); // cap at 1MB
+                            Trace("NT", $"resize sd buffer -> {bufferSize} bytes (attempt {attempt + 1})", ntObjectPath, status: status);
+                            continue;
+                        }
+
+                        if (status != 0)
+                        {
+                            Trace("NT", "NtQuerySecurityObject failed", ntObjectPath, status: status);
+                            return (null, $"NtQuerySecurityObject:{NtStatusName(status)}");
+                        }
+
+                        // Copy the SD bytes out.
+                        var bytes = new byte[returned];
+                        Marshal.Copy(buf, bytes, 0, (int)returned);
+                        return (bytes, null);
+                    }
+                    finally
+                    {
+                        Marshal.FreeHGlobal(buf);
+                    }
+                }
+
+                return (null, "NtQuerySecurityObject:TooManyResizeAttempts");
+            }
+            catch (Exception ex)
+            {
+                Trace("NT", "exception in TryQuerySecurityDescriptorNt", ntObjectPath, ex: ex);
+                return (null, $"Exception:{ex.GetType().Name}");
             }
             finally
             {
-                if (pSecurityDescriptor != IntPtr.Zero)
-                    LocalFree(pSecurityDescriptor);
+                handle?.Dispose();
+            }
+        }
+
+        private static int NtOpenNamedPipe(string ntPath, uint desiredAccess, out SafeNtHandle handle)
+        {
+            handle = new SafeNtHandle();
+
+            // Improved robustness:
+            // - Use correctly laid-out UNICODE_STRING (x86/x64 safe).
+            // - Avoid setting the SafeHandle with garbage if NtOpenFile fails.
+            IntPtr stringBuffer = IntPtr.Zero;
+            IntPtr unicodeStringPtr = IntPtr.Zero;
+
+            try
+            {
+                var us = CreateUnicodeString(ntPath, out stringBuffer, out unicodeStringPtr);
+
+                var oa = new OBJECT_ATTRIBUTES
+                {
+                    Length = (uint)Marshal.SizeOf<OBJECT_ATTRIBUTES>(),
+                    RootDirectory = IntPtr.Zero,
+                    ObjectName = unicodeStringPtr, // PUNICODE_STRING
+                    Attributes = OBJ_CASE_INSENSITIVE,
+                    SecurityDescriptor = IntPtr.Zero,
+                    SecurityQualityOfService = IntPtr.Zero
+                };
+
+                IO_STATUS_BLOCK iosb;
+
+                // Use FILE_OPEN + FILE_NON_DIRECTORY_FILE.
+                // Share flags allow coexistence with server instances.
+                var status = NtOpenFile(
+                    out var h,
+                    desiredAccess,
+                    ref oa,
+                    out iosb,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    FILE_NON_DIRECTORY_FILE);
+
+                if (status == 0)
+                {
+                    handle.SetHandle(h);
+                }
+                else
+                {
+                    Trace("NT", "NtOpenFile failed", ntPath, status: status);
+                }
+
+                return status;
+            }
+            catch (Exception ex)
+            {
+                Trace("NT", "exception in NtOpenNamedPipe", ntPath, ex: ex);
+                return unchecked((int)0xC0000001); // STATUS_UNSUCCESSFUL
+            }
+            finally
+            {
+                if (unicodeStringPtr != IntPtr.Zero)
+                    Marshal.FreeHGlobal(unicodeStringPtr);
+
+                if (stringBuffer != IntPtr.Zero)
+                    Marshal.FreeHGlobal(stringBuffer);
+            }
+        }
+
+        private static UNICODE_STRING CreateUnicodeString(string s, out IntPtr stringBuffer, out IntPtr unicodeStringPtr)
+        {
+            // Allocate the UTF-16 string buffer.
+            // Must be null-terminated; StringToHGlobalUni does that.
+            stringBuffer = Marshal.StringToHGlobalUni(s);
+
+            var us = new UNICODE_STRING
+            {
+                Length = checked((ushort)(s.Length * 2)),
+                MaximumLength = checked((ushort)((s.Length * 2) + 2)),
+                Buffer = stringBuffer
+            };
+
+            // Allocate UNICODE_STRING struct.
+            unicodeStringPtr = Marshal.AllocHGlobal(Marshal.SizeOf<UNICODE_STRING>());
+            Marshal.StructureToPtr(us, unicodeStringPtr, fDeleteOld: false);
+
+            return us;
+        }
+
+        // =========================
+        // Win32 fallback (improved and complete)
+        // =========================
+
+        private static QueryAttempt TryCollectViaWin32(string win32Path, bool includeMandatoryLabel)
+        {
+            Trace("Win32", "begin", win32Path);
+
+            // Base flags always requested.
+            const SECURITY_INFORMATION baseFlags =
+                SECURITY_INFORMATION.OWNER_SECURITY_INFORMATION |
+                SECURITY_INFORMATION.GROUP_SECURITY_INFORMATION |
+                SECURITY_INFORMATION.DACL_SECURITY_INFORMATION;
+
+            // We will try to include label if requested, but must tolerate access denied.
+            SECURITY_INFORMATION flags = baseFlags;
+            if (includeMandatoryLabel)
+                flags |= SECURITY_INFORMATION.LABEL_SECURITY_INFORMATION;
+
+            // Attempt 1: with label (if requested).
+            var (sdBytes, err) = TryQuerySecurityDescriptorWin32(win32Path, flags);
+            if (sdBytes is null && includeMandatoryLabel)
+            {
+                Trace("Win32", $"query with LABEL failed: {err} (retry without LABEL)", win32Path);
+
+                // Attempt 2: without label.
+                (sdBytes, err) = TryQuerySecurityDescriptorWin32(win32Path, baseFlags);
             }
 
-            static string Stage(SECURITY_INFORMATION flagsUsed)
-                => flagsUsed.HasFlag(SECURITY_INFORMATION.LABEL_SECURITY_INFORMATION) ? "Dacl+Label" : "DaclOnly";
+            if (sdBytes is null)
+            {
+                Trace("Win32", $"query failed: {err}", win32Path);
+                return QueryAttempt.Fail($"Win32:{err}");
+            }
+
+            try
+            {
+                var raw = new RawSecurityDescriptor(sdBytes, 0);
+
+                var ownerSid = raw.Owner?.Value;
+                var ownerName = TryResolveSidToName(raw.Owner);
+
+                var sddl = raw.GetSddlForm(AccessControlSections.All);
+
+                var dacl = raw.DiscretionaryAcl is null
+                    ? null
+                    : ParseDacl(raw.DiscretionaryAcl);
+
+                MandatoryLabelInfo? mil = null;
+                if (includeMandatoryLabel && raw.SystemAcl is not null)
+                {
+                    // MIL is typically stored as an ACE in the SACL (integrity SID S-1-16-*)
+                    mil = TryParseMandatoryLabel(raw.SystemAcl);
+                }
+
+                Trace("Win32", "parsed ok", win32Path);
+
+                return QueryAttempt.Ok(new NamedPipeSecurityInfo
+                {
+                    OwnerSid = ownerSid,
+                    OwnerName = ownerName,
+                    Sddl = sddl,
+                    Dacl = dacl,
+                    MandatoryLabel = mil,
+                    Error = null
+                });
+            }
+            catch (Exception ex)
+            {
+                Trace("Win32", "parse failed", win32Path, ex: ex);
+                return QueryAttempt.Fail($"Win32:Parse:{ex.GetType().Name}");
+            }
         }
+
+        private static (byte[]? securityDescriptor, string? error) TryQuerySecurityDescriptorWin32(
+    string win32Path,
+    SECURITY_INFORMATION securityInformation)
+        {
+            var normalized = NormalizeWin32PipePath(win32Path);
+
+            for (int attempt = 0; attempt <= Win32BusyRetryCount; attempt++)
+            {
+                IntPtr pSD = IntPtr.Zero;
+                IntPtr pOwner = IntPtr.Zero;
+                IntPtr pGroup = IntPtr.Zero;
+                IntPtr pDacl = IntPtr.Zero;
+                IntPtr pSacl = IntPtr.Zero;
+
+                try
+                {
+                    var result = GetNamedSecurityInfoW(
+                        normalized,
+                        SE_OBJECT_TYPE.SE_FILE_OBJECT,
+                        securityInformation,
+                        out pOwner,
+                        out pGroup,
+                        out pDacl,
+                        out pSacl,
+                        out pSD);
+
+                    if (result == ERROR_PIPE_BUSY && attempt < Win32BusyRetryCount)
+                    {
+                        Trace("Win32",
+                            $"ERROR_PIPE_BUSY -> WaitNamedPipe {Win32BusyWaitMs}ms then retry (attempt {attempt + 1}/{Win32BusyRetryCount})",
+                            normalized);
+
+                        // WaitNamedPipe returns false on timeout (ERROR_SEM_TIMEOUT=121) or other errors.
+                        var ok = WaitNamedPipeW(normalized, (uint)Win32BusyWaitMs);
+                        if (!ok)
+                        {
+                            var last = Marshal.GetLastWin32Error();
+                            Trace("Win32", $"WaitNamedPipe failed/timeout (lastError={last})", normalized);
+                        }
+                        else
+                        {
+                            Trace("Win32", "WaitNamedPipe signaled availability", normalized);
+                        }
+
+                        continue;
+                    }
+
+                    if (pSD == IntPtr.Zero)
+                        return (null, "GetNamedSecurityInfo:NullSecurityDescriptor");
+
+                    // Convert absolute SD to self-relative bytes
+                    uint needed = 0;
+                    if (!MakeSelfRelativeSD(pSD, IntPtr.Zero, ref needed))
+                    {
+                        var last = Marshal.GetLastWin32Error();
+                        if (last != ERROR_INSUFFICIENT_BUFFER)
+                            return (null, $"MakeSelfRelativeSD:ProbeFailed:{last}");
+                    }
+
+                    var buf = Marshal.AllocHGlobal((int)needed);
+                    try
+                    {
+                        uint needed2 = needed;
+                        if (!MakeSelfRelativeSD(pSD, buf, ref needed2))
+                        {
+                            var last2 = Marshal.GetLastWin32Error();
+                            return (null, $"MakeSelfRelativeSD:ConvertFailed:{last2}");
+                        }
+
+                        var bytes = new byte[needed2];
+                        Marshal.Copy(buf, bytes, 0, (int)needed2);
+                        return (bytes, null);
+                    }
+                    finally
+                    {
+                        Marshal.FreeHGlobal(buf);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Trace("Win32", "exception in TryQuerySecurityDescriptorWin32", normalized, ex: ex);
+                    return (null, $"Exception:{ex.GetType().Name}");
+                }
+                finally
+                {
+                    if (pSD != IntPtr.Zero)
+                        LocalFree(pSD);
+                }
+            }
+
+            // Should not reach here due to returns, but keep deterministic.
+            return (null, "GetNamedSecurityInfo:PIPE_BUSY_RetryExhausted");
+        }
+
+        // Helper used for probing MakeSelfRelativeSD
+        private static uint UnsafeZero = 0;
+
+        private const int STATUS_PIPE_BUSY = unchecked((int)0xC00000AC);
+        private const int ERROR_PIPE_BUSY = 231;
+
+        private static bool IsPipeBusyNt(int status) => status == STATUS_PIPE_BUSY;
+        private static bool IsPipeBusyWin32(string? err) => err?.Contains("231(") == true || err?.Contains(":231(") == true;
+
+        // =========================
+        // Parsing helpers
+        // =========================
 
         private static IReadOnlyList<AceInfo> ParseDacl(RawAcl dacl)
         {
@@ -180,24 +542,17 @@ namespace WTBM.Collectors.IPC
 
             for (int i = 0; i < dacl.Count; i++)
             {
-                var ace = dacl[i];
-
-                if (ace is not CommonAce ca)
+                if (dacl[i] is not CommonAce ace)
                     continue;
 
-                var sid = ca.SecurityIdentifier?.Value ?? string.Empty;
-                var principal = TryTranslateSid(ca.SecurityIdentifier);
-
-                // For named pipes the object type is "File" in the NT object manager.
-                // The access mask is still meaningful for reachability (read/write/execute/etc.).
-                var rights = FormatAccessMask(ca.AccessMask);
+                var sid = ace.SecurityIdentifier?.Value ?? string.Empty;
 
                 list.Add(new AceInfo
                 {
                     Sid = sid,
-                    Principal = principal,
-                    Rights = rights,
-                    AceType = ca.AceQualifier.ToString(), // Allow/Deny/SystemAudit etc.
+                    Principal = TryResolveSidToName(ace.SecurityIdentifier),
+                    AceType = ace.AceType.ToString(),
+                    Rights = FormatPipeRights(ace.AccessMask),
                     Condition = null
                 });
             }
@@ -205,31 +560,51 @@ namespace WTBM.Collectors.IPC
             return list;
         }
 
-        /// <summary>
-        /// Attempts to parse the Mandatory Integrity Label from the SACL.
-        /// This is best-effort. If not present or not supported, returns null.
-        /// </summary>
+        // Conservative placeholder: you can refine to map mask bits to pipe semantics later.
+        private static string FormatPipeRights(int accessMask)
+        {
+            // Keep as hex for research-grade explainability if you don’t have a clean mapping yet.
+            return $"0x{accessMask:X8}";
+        }
+
+        private static string? TryResolveSidToName(SecurityIdentifier? sid)
+        {
+            if (sid is null) return null;
+            try
+            {
+                var nt = (NTAccount)sid.Translate(typeof(NTAccount));
+                return nt.Value;
+            }
+            catch
+            {
+                return sid.Value; // fallback to SID string for deterministic output
+            }
+        }
+
+        // For MIL in SDDL, RawSecurityDescriptor.SystemAcl includes CommonAce entries;
+        // we detect the mandatory label by looking for the SID S-1-16-* (integrity) and policy bits.
         private static MandatoryLabelInfo? TryParseMandatoryLabel(RawAcl sacl)
         {
             for (int i = 0; i < sacl.Count; i++)
             {
-                var ace = sacl[i];
-                if (ace is not CommonAce ca)
+                if (sacl[i] is not CommonAce ace)
                     continue;
 
-                if (ca.AceType != ACE_TYPE_SYSTEM_MANDATORY_LABEL)
+                var sid = ace.SecurityIdentifier;
+                if (sid is null)
                     continue;
 
-                var sid = ca.SecurityIdentifier?.Value;
-                if (string.IsNullOrWhiteSpace(sid))
-                    return null;
+                // Integrity SIDs are S-1-16-*
+                if (!sid.Value.StartsWith("S-1-16-", StringComparison.OrdinalIgnoreCase))
+                    continue;
 
-                var policy = FormatMandatoryLabelPolicy(ca.AccessMask);
+                // AccessMask on label ACE encodes mandatory policy flags.
+                var policy = FormatMandatoryLabelPolicy(ace.AccessMask);
 
                 return new MandatoryLabelInfo
                 {
-                    Sid = sid,
-                    Principal = TryTranslateSid(ca.SecurityIdentifier),
+                    Sid = sid.Value,
+                    Principal = TryResolveSidToName(sid),
                     Policy = policy
                 };
             }
@@ -237,108 +612,38 @@ namespace WTBM.Collectors.IPC
             return null;
         }
 
-        private static string FormatAccessMask(int accessMask)
-        {
-            // Keep a stable representation + a small human-friendly summary.
-            // Do NOT attempt perfect decoding; this is for triage and research explainability.
-            var hex = $"0x{accessMask:X8}";
-            var rwx = SummarizeRwx(accessMask);
-
-            return rwx.Length == 0 ? hex : $"{hex} ({rwx})";
-        }
-
-        private static string SummarizeRwx(int accessMask)
-        {
-            // Generic bits
-            const int GENERIC_READ = unchecked((int)0x80000000);
-            const int GENERIC_WRITE = 0x40000000;
-            const int GENERIC_EXECUTE = 0x20000000;
-            const int GENERIC_ALL = 0x10000000;
-
-            // File-specific low bits often map to read/write semantics for named pipe objects.
-            const int FILE_READ_DATA = 0x0001;
-            const int FILE_WRITE_DATA = 0x0002;
-            const int FILE_APPEND_DATA = 0x0004;
-
-            var parts = new List<string>();
-
-            if ((accessMask & GENERIC_ALL) != 0)
-                parts.Add("ALL");
-
-            if ((accessMask & (GENERIC_READ | FILE_READ_DATA)) != 0)
-                parts.Add("R");
-
-            if ((accessMask & (GENERIC_WRITE | FILE_WRITE_DATA | FILE_APPEND_DATA)) != 0)
-                parts.Add("W");
-
-            if ((accessMask & GENERIC_EXECUTE) != 0)
-                parts.Add("X");
-
-            return string.Join("", parts);
-        }
-
         private static string FormatMandatoryLabelPolicy(int accessMask)
         {
-            const int NO_WRITE_UP = 0x1;
-            const int NO_READ_UP = 0x2;
-            const int NO_EXECUTE_UP = 0x4;
+            // Bits (documented for SYSTEM_MANDATORY_LABEL_ACE) commonly include:
+            // 0x1 = NO_WRITE_UP, 0x2 = NO_READ_UP, 0x4 = NO_EXECUTE_UP.
+            var parts = new List<string>(3);
 
-            var parts = new List<string>();
+            if ((accessMask & 0x1) != 0) parts.Add("NoWriteUp");
+            if ((accessMask & 0x2) != 0) parts.Add("NoReadUp");
+            if ((accessMask & 0x4) != 0) parts.Add("NoExecuteUp");
 
-            if ((accessMask & NO_WRITE_UP) != 0) parts.Add("NoWriteUp");
-            if ((accessMask & NO_READ_UP) != 0) parts.Add("NoReadUp");
-            if ((accessMask & NO_EXECUTE_UP) != 0) parts.Add("NoExecuteUp");
-
-            return parts.Count == 0 ? $"0x{accessMask:X8}" : string.Join("|", parts);
+            return parts.Count == 0 ? $"0x{accessMask:X}" : string.Join("|", parts);
         }
-
-        private static string? TryTranslateSid(SecurityIdentifier? sid)
-        {
-            if (sid is null) return null;
-
-            try
-            {
-                return sid.Translate(typeof(NTAccount)).Value;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static string Win32ErrorName(int code)
-        {
-            // Translate a Win32/NTSTATUS-like error to a stable identifier.
-            // GetNamedSecurityInfo returns Win32 error codes (DWORD).
-            try
-            {
-                return new Win32Exception(code).NativeErrorCode switch
-                {
-                    ERROR_ACCESS_DENIED => "AccessDenied",
-                    ERROR_INVALID_NAME => "InvalidName",
-                    ERROR_FILE_NOT_FOUND => "NotFound",
-                    ERROR_PATH_NOT_FOUND => "PathNotFound",
-                    _ => $"Win32Error{code}"
-                };
-            }
-            catch
-            {
-                return $"Win32Error{code}";
-            }
-        }
-
-        private const int ERROR_ACCESS_DENIED = 5;
-        private const int ERROR_INVALID_NAME = 123;
-        private const int ERROR_FILE_NOT_FOUND = 2;
-        private const int ERROR_PATH_NOT_FOUND = 3;
-
-        private const uint SDDL_REVISION_1 = 1;
 
         // =========================
-        // P/Invoke
+        // NT interop
         // =========================
 
-        private const AceType ACE_TYPE_SYSTEM_MANDATORY_LABEL = (AceType)0x11;
+        private const uint READ_CONTROL = 0x00020000;
+        private const uint ACCESS_SYSTEM_SECURITY = 0x01000000;
+
+        private const uint FILE_SHARE_READ = 0x00000001;
+        private const uint FILE_SHARE_WRITE = 0x00000002;
+        private const uint FILE_SHARE_DELETE = 0x00000004;
+
+        private const uint FILE_NON_DIRECTORY_FILE = 0x00000040;
+
+        private const uint OBJ_CASE_INSENSITIVE = 0x00000040;
+
+        private const int STATUS_BUFFER_TOO_SMALL = unchecked((int)0xC0000023);
+        private const int STATUS_BUFFER_OVERFLOW = unchecked((int)0x80000005);
+
+        private const int ERROR_INSUFFICIENT_BUFFER = 122;
 
         [Flags]
         private enum SECURITY_INFORMATION : uint
@@ -347,62 +652,150 @@ namespace WTBM.Collectors.IPC
             GROUP_SECURITY_INFORMATION = 0x00000002,
             DACL_SECURITY_INFORMATION = 0x00000004,
             SACL_SECURITY_INFORMATION = 0x00000008,
-
-            // Integrity label ACEs live in the SACL; LABEL_SECURITY_INFORMATION requests them.
-            LABEL_SECURITY_INFORMATION = 0x00000010,
-
-            ATTRIBUTE_SECURITY_INFORMATION = 0x00000020,
-            SCOPE_SECURITY_INFORMATION = 0x00000040
+            LABEL_SECURITY_INFORMATION = 0x00000010
         }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IO_STATUS_BLOCK
+        {
+            public IntPtr Status;
+            public IntPtr Information;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct OBJECT_ATTRIBUTES
+        {
+            public uint Length;
+            public IntPtr RootDirectory;
+            public IntPtr ObjectName; // PUNICODE_STRING
+            public uint Attributes;
+            public IntPtr SecurityDescriptor;
+            public IntPtr SecurityQualityOfService;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct UNICODE_STRING
+        {
+            public ushort Length;
+            public ushort MaximumLength;
+            public IntPtr Buffer;
+        }
+
+        private sealed class SafeNtHandle : SafeHandle
+        {
+            public SafeNtHandle() : base(IntPtr.Zero, ownsHandle: true) { }
+            public override bool IsInvalid => handle == IntPtr.Zero || handle == new IntPtr(-1);
+
+            protected override bool ReleaseHandle()
+            {
+                return NtClose(handle) == 0;
+            }
+
+            public void SetHandle(IntPtr h) => handle = h;
+        }
+
+        [DllImport("ntdll.dll")]
+        private static extern int NtOpenFile(
+            out IntPtr FileHandle,
+            uint DesiredAccess,
+            ref OBJECT_ATTRIBUTES ObjectAttributes,
+            out IO_STATUS_BLOCK IoStatusBlock,
+            uint ShareAccess,
+            uint OpenOptions);
+
+        [DllImport("ntdll.dll")]
+        private static extern int NtQuerySecurityObject(
+            IntPtr Handle,
+            SECURITY_INFORMATION SecurityInformation,
+            IntPtr SecurityDescriptor,
+            uint Length,
+            out uint LengthNeeded);
+
+        [DllImport("ntdll.dll")]
+        private static extern int NtClose(IntPtr Handle);
+
+        private static string NtStatusName(int status)
+        {
+            // Minimal mapping; keep deterministic strings for research.
+            if (status == 0) return "STATUS_SUCCESS";
+            if (status == STATUS_BUFFER_TOO_SMALL) return "STATUS_BUFFER_TOO_SMALL";
+            if (status == STATUS_BUFFER_OVERFLOW) return "STATUS_BUFFER_OVERFLOW";
+            return $"0x{status:X8}";
+        }
+
+        // =========================
+        // Win32 interop
+        // =========================
 
         private enum SE_OBJECT_TYPE
         {
             SE_UNKNOWN_OBJECT_TYPE = 0,
             SE_FILE_OBJECT = 1,
-            // (others omitted)
+            SE_SERVICE = 2,
+            SE_PRINTER = 3,
+            SE_REGISTRY_KEY = 4,
+            SE_LMSHARE = 5,
+            SE_KERNEL_OBJECT = 6,
+            SE_WINDOW_OBJECT = 7,
+            SE_DS_OBJECT = 8,
+            SE_DS_OBJECT_ALL = 9,
+            SE_PROVIDER_DEFINED_OBJECT = 10,
+            SE_WMIGUID_OBJECT = 11,
+            SE_REGISTRY_WOW64_32KEY = 12
         }
 
         [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern int GetNamedSecurityInfoW(
+        private static extern uint GetNamedSecurityInfoW(
             string pObjectName,
-            SE_OBJECT_TYPE ObjectType,
-            SECURITY_INFORMATION SecurityInfo,
+            SE_OBJECT_TYPE objectType,
+            SECURITY_INFORMATION securityInfo,
             out IntPtr ppsidOwner,
             out IntPtr ppsidGroup,
             out IntPtr ppDacl,
             out IntPtr ppSacl,
             out IntPtr ppSecurityDescriptor);
 
-        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern bool ConvertSecurityDescriptorToStringSecurityDescriptorW(
-            IntPtr SecurityDescriptor,
-            uint RequestedStringSDRevision,
-            SECURITY_INFORMATION SecurityInformation,
-            out IntPtr StringSecurityDescriptor,
-            out uint StringSecurityDescriptorLen);
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool MakeSelfRelativeSD(
+            IntPtr pAbsoluteSecurityDescriptor,
+            IntPtr pSelfRelativeSecurityDescriptor,
+            ref uint lpdwBufferLength);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern IntPtr LocalFree(IntPtr hMem);
 
-        private readonly struct QueryResult
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool WaitNamedPipeW(string lpNamedPipeName, uint nTimeOut);
+
+        private static string NormalizeWin32PipePath(string win32Path)
         {
-            public bool Success { get; }
+            if (string.IsNullOrWhiteSpace(win32Path))
+                return win32Path;
+
+            // Canonical form: \\.\pipe\<name>
+            if (win32Path.StartsWith(@"\\.\pipe\", StringComparison.OrdinalIgnoreCase))
+                return win32Path;
+
+            // If someone passed only the name, fix it.
+            if (!win32Path.Contains(@"\") && !win32Path.Contains(@"/"))
+                return @"\\.\pipe\" + win32Path;
+            return win32Path;
+        }
+
+        // Lightweight result holder.
+        private readonly struct QueryAttempt
+        {
             public NamedPipeSecurityInfo? Info { get; }
             public string? Error { get; }
-            public int ErrorCode { get; }
 
-            private QueryResult(bool success, NamedPipeSecurityInfo? info, string? error, int errorCode)
+            private QueryAttempt(NamedPipeSecurityInfo? info, string? error)
             {
-                Success = success;
                 Info = info;
                 Error = error;
-                ErrorCode = errorCode;
             }
 
-            public static QueryResult Ok(NamedPipeSecurityInfo info) => new(true, info, null, 0);
-            public static QueryResult Fail(int errorCode, string error) => new(false, null, error, errorCode);
+            public static QueryAttempt Ok(NamedPipeSecurityInfo info) => new QueryAttempt(info, null);
+            public static QueryAttempt Fail(string error) => new QueryAttempt(null, error);
         }
     }
-
-    
 }
