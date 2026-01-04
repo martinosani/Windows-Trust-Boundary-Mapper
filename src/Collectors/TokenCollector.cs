@@ -1,13 +1,13 @@
 ﻿using Microsoft.Win32.SafeHandles;
-using PTTBM.Models;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
 using System.Text;
+using WTBM.Domain.Processes;
 
-namespace PTTBM.Collectors
+namespace WTBM.Collectors
 {
     /// <summary>
     /// Collects a security-oriented TokenInfo snapshot for a given process PID.

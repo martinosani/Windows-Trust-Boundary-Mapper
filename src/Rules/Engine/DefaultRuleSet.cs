@@ -1,17 +1,23 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using WTBM.Rules.Abstractions;
+using WTBM.Rules.Markers;
 
-namespace PTTBM.Collectors.Rules
+namespace WTBM.Rules.Engine
 {
     internal static class DefaultRuleSet
     {
-        public static IReadOnlyList<IProcessRule> Create()
-            => new IProcessRule[]
+        public static IReadOnlyList<IRule> Create()
+            => new IRule[]
             {
+                // Markers
+                new HighImpactPrivilegesRule(),
+
+
+                /*
                 // Sandbox / boundary states
                 new LegacySandboxTokenRule(),
-
                 // Trust boundary asymmetry
                 //new HighIntegrityInteractiveRule(),
                 //new SystemInInteractiveSessionRule(),
@@ -25,10 +31,10 @@ namespace PTTBM.Collectors.Rules
                 //new SessionMismatchRule(),
 
                 // Privilege leverage indicator
-                new HighImpactPrivilegesRule(),
 
                 // Visibility boundaries
                 //new VisibilityBoundaryRule()
+                */
             };
     }
 }

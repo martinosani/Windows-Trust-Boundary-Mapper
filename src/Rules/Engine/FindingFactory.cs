@@ -1,51 +1,69 @@
-﻿using PTTBM.Models;
-using PTTBM.Models.Rules;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using WTBM.Domain.Processes;
+using WTBM.Rules.Abstractions;
+using WTBM.Domain.Findings;
 
-namespace PTTBM.Collectors.Rules
+namespace WTBM.Rules.Engine
 {
     internal static class FindingFactory
     {
-        public static ProcessFinding Create(
-            IProcessRule rule,
-            ProcessSnapshot snapshot,
+        public static Finding Create(
+            IRule rule,
             FindingSeverity severity,
             string titleSuffix,
+
+            FindingSubjectType subjectType,
+            string subjectId,
+            string? subjectDisplayName,
+
             string evidence,
             string recommendation,
+
             IReadOnlyList<string> tags,
             IReadOnlyList<int> relatedPids,
             IReadOnlyList<string> conceptRefs,
             IReadOnlyList<InvestigationStep> nextSteps,
+
             int? scoreOverride = null,
             string? keySuffix = null)
         {
-            var baseTitle = rule.Title;
+            if (rule is null) throw new ArgumentNullException(nameof(rule));
+
+            subjectId = (subjectId ?? string.Empty).Trim();
+            if (subjectId.Length == 0)
+                throw new ArgumentException("subjectId must be non-empty.", nameof(subjectId));
+
+            var baseTitle = rule.Title ?? rule.RuleId;
             var title = string.IsNullOrWhiteSpace(titleSuffix) ? baseTitle : $"{baseTitle} ({titleSuffix})";
 
-            var key = keySuffix is null
-                ? $"{rule.RuleId}:{snapshot.Process.Pid}"
-                : $"{rule.RuleId}:{snapshot.Process.Pid}:{keySuffix}";
+            var normalizedKeySuffix = string.IsNullOrWhiteSpace(keySuffix) ? null : keySuffix.Trim();
+
+            // Stable, subject-agnostic key for dedup:
+            // RuleId:SubjectType:SubjectId[:KeySuffix]
+            var key = normalizedKeySuffix is null
+                ? $"{rule.RuleId}:{subjectType}:{subjectId}"
+                : $"{rule.RuleId}:{subjectType}:{subjectId}:{normalizedKeySuffix}";
 
             var score = scoreOverride ?? ComputeScore(severity, tags, relatedPids);
 
-            return new ProcessFinding(
-                severity,
-                rule.Category,
+            return new Finding(
                 rule.RuleId,
                 title,
-                snapshot.Process.Pid,
-                snapshot.Process.Name,
+                severity,
+                rule.Category,
+                subjectType,
+                subjectId,
+                subjectDisplayName,
+                RuleHelpers.ClampScore(score),
                 evidence,
                 recommendation,
-                key,
                 tags,
                 relatedPids,
                 conceptRefs,
                 nextSteps,
-                RuleHelpers.ClampScore(score)
+                key
             );
         }
 

@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace PTTBM.Models
+namespace WTBM.Domain.Processes
 {
     internal sealed class ProcessSnapshot
     {

@@ -1,10 +1,10 @@
-﻿using PTTBM.Models;
-using PTTBM.Models.Rules;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using WTBM.Domain.Processes;
+using WTBM.Domain.Findings;
 
-namespace PTTBM.Collectors.Rules
+namespace WTBM.Rules.Abstractions
 {
     internal static class RuleHelpers
     {

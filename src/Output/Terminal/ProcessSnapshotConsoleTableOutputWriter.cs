@@ -1,10 +1,11 @@
-﻿using PTTBM.Models;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using WTBM.Domain.Processes;
+using WTBM.Output.Abstractions;
 
-namespace PTTBM.Renders.OutputWriter
+namespace WTBM.Renders.OutputWriter
 {
     internal sealed class ProcessSnapshotConsoleTableOutputWriter : IOutputWriter
     {

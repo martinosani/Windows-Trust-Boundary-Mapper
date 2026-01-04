@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace PTTBM.Models.Rules
+namespace WTBM.Domain.Findings
 {
     internal static class Docs
     {

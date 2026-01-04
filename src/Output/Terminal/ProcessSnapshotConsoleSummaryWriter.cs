@@ -1,9 +1,10 @@
-﻿using PTTBM.Models;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using WTBM.Domain.Processes;
+using WTBM.Output.Abstractions;
 
-namespace PTTBM.Renders.OutputWriter
+namespace WTBM.Renders.OutputWriter
 {
     /// <summary>
     /// Console implementation of <see cref="IOutputWriter"/> that prints a one-line-per-process

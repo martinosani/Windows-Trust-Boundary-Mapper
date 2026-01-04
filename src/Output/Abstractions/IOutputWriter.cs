@@ -1,9 +1,9 @@
-﻿using PTTBM.Models;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using WTBM.Domain.Processes;
 
-namespace PTTBM.Renders.OutputWriter
+namespace WTBM.Output.Abstractions
 {
     /// <summary>
     /// Output abstraction for rendering PTTBM results.

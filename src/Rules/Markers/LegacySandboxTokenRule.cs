@@ -1,31 +1,33 @@
-﻿using PTTBM.Models;
-using PTTBM.Models.Rules;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using WTBM.Core;
+using WTBM.Domain.Processes;
+using WTBM.Rules.Engine;
+using WTBM.Rules.Abstractions;
+using WTBM.Domain.Findings;
 
-namespace PTTBM.Collectors.Rules
+namespace WTBM.Rules.Markers
 {
-    /// <summary>
-    /// PTTBM.SBX.001
-    ///
-    /// Legacy sandbox token marker (facts-only) rule.
-    ///
-    /// Trigger (strict, observable facts only):
-    /// - Token IntegrityLevel == Low
-    /// - Token IsRestricted == true
-    /// - Token IsAppContainer == false
-    ///
-    /// Non-goals (by design):
-    /// - No broker identification
-    /// - No IPC enumeration
-    /// - No correlation-based candidate ranking
-    ///
-    /// This rule reports the marker and provides investigation guidance. Any deeper correlation
-    /// is explicitly delegated to dedicated correlation/surface rules.
-    /// </summary>
-    internal sealed class LegacySandboxTokenRule : IProcessRule
+    internal sealed class LegacySandboxTokenRule : IRule
     {
+        public string RuleId => throw new NotImplementedException();
+
+        public string Title => throw new NotImplementedException();
+
+        public string Description => throw new NotImplementedException();
+
+        public RuleKind Kind => throw new NotImplementedException();
+
+        public FindingCategory Category => throw new NotImplementedException();
+
+        public IEnumerable<Finding> Evaluate(RuleContext context)
+        {
+            throw new NotImplementedException();
+        }
+
+
+        /*
         public string RuleId => "PTTBM.SBX.001";
         public string Title => "Legacy sandbox token marker (Low IL + Restricted + non-AppContainer)";
         public FindingCategory Category => FindingCategory.Sandbox;
@@ -33,7 +35,7 @@ namespace PTTBM.Collectors.Rules
         // Facts-only marker: default to Medium. Correlation/surface layers may escalate severity.
         public FindingSeverity BaselineSeverity => FindingSeverity.Medium;
 
-        public IEnumerable<ProcessFinding> Evaluate(ProcessSnapshot s, RuleContext ctx)
+        public IEnumerable<Finding> Evaluate(ProcessSnapshot s, RuleContext ctx)
         {
             if (s is null || ctx is null)
                 yield break;
@@ -252,5 +254,8 @@ namespace PTTBM.Collectors.Rules
 
             return sb.ToString().TrimEnd();
         }
+
+        */
+
     }
 }

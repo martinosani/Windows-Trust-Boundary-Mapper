@@ -1,8 +1,10 @@
-﻿using PTTBM.Collectors;
-using PTTBM.Renders.OutputWriter;
+﻿using WTBM.Collectors;
+using WTBM.Renders.OutputWriter;
 using System;
+using WTBM.Output.Terminal;
+using WTBM.Rules.Engine;
 
-namespace PTTBM
+namespace WTBM
 {
     internal static class Program
     {
@@ -17,38 +19,18 @@ namespace PTTBM
             var tokenCollector = new TokenCollector();
             var snapshots = processes.Select(p => tokenCollector.TryCollect(p)).ToList();
 
-            var rules = PTTBM.Collectors.Rules.DefaultRuleSet.Create();
-            var findings = PTTBM.Collectors.Rules.ProcessRuleEngine.EvaluateAll(snapshots, rules);
+            var rules = DefaultRuleSet.Create();
+            var findings = RuleEngine.EvaluateAll(snapshots, rules);
 
-            PTTBM.Renders.ProcessFindingsConsoleRender.WriteSummary(findings);
+            FindingsConsoleWriter.WriteSummary(findings);
 
             if (findings.Count > 0)
             {
                 Console.WriteLine();
 
-                var finding = findings.First(f => f.ProcessName.Contains("Avast"));
-                //PTTBM.Renders.ProcessFindingsConsoleRender.Explain(finding);
-
-                PTTBM.Renders.ProcessFindingsConsoleRender.Explain(findings[0]);
+                FindingsConsoleWriter.Explain(findings[0]);
             }
-            
-            
-            //new FindingConsoleOuputWriter()
-            //    .WriteSummary(processes.Select(p => tokenCollector.TryCollect(p)));
-
-            //var consoleOutput = new ProcessSnapshotConsoleTableOutputWriter();
-            // consoleOutput.WriteSummary(processes.Select(p => tokenCollector.TryCollect(p)));
-
-
-            /*
-            foreach (var process in processes)
-            {
-                // var snapshot = tokenCollector.TryCollect(process);
-
-                // Renders.ProcessSnapshotConsoleRenderer.Render(snapshot);
-
-                // Console.WriteLine($"{process.Pid,6} {process.Ppid,6} S:{process.SessionId,2} {process.Name}");
-            }*/
+           
 
 
             return 0;

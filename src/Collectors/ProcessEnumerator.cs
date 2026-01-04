@@ -1,11 +1,11 @@
-﻿using PTTBM.Models;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using WTBM.Domain.Processes;
 
-namespace PTTBM.Collectors
+namespace WTBM.Collectors
 {
     internal sealed class ProcessEnumerator
     {

@@ -1,8 +1,8 @@
-﻿using PTTBM.Models;
-using System;
+﻿using System;
 using System.Linq;
+using WTBM.Domain.Processes;
 
-namespace PTTBM.Renders
+namespace WTBM.Output.Terminal
 {
     internal static class ProcessSnapshotConsoleRenderer
     {
