@@ -38,6 +38,10 @@ namespace WTBM.Rules.Markers
             "/doc/Windows IPC Security (Inter-Process Communication).md"
         };
 
+        public HighImpactPrivilegeProcessesRule()
+        {
+        }
+
         public string RuleId => "PTTBM.PRIV.001";
         public string Title => "High-impact privileges assigned";
         public string Description => "Identifies processes holding privileges that materially increase trust-boundary risk when combined with reachable IPC surfaces.";

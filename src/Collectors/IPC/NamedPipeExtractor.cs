@@ -1,10 +1,13 @@
 ﻿using NtApiDotNet;
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Text;
 using WTBM.Collectors.IPC.OLD;
 using WTBM.Domain.IPC;
-using static System.Runtime.InteropServices.JavaScript.JSType;
+using WTBM.NtNative;
+using static WTBM.NtNative.Win32Security;
+
 
 namespace WTBM.Collectors.IPC
 {
@@ -13,16 +16,95 @@ namespace WTBM.Collectors.IPC
         private const string PipeRootWin32 = @"\\.\pipe\";
         private const string PipeRootNt = @"\Device\NamedPipe\";
 
+        public NamedPipeExtractor()
+        {
+            try
+            {
+                using var token = NtToken.OpenProcessToken(NtProcess.Current, TokenAccessRights.AdjustPrivileges | TokenAccessRights.Query);
+                token.SetPrivilege(TokenPrivilegeValue.SeDebugPrivilege, PrivilegeAttributes.Enabled);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug("Cannot set SeDebugPrivilege privilege.");
+            }
+        }
+
+       
+
         public IReadOnlyList<NamedPipeEndpoint> GetNamedPipesFromProcessHandles(int pid)
         {
             var results = new List<NamedPipeEndpoint>();
             int errorCounter = 0;
+
+            // Logger.LogDebug(String.Format("[PID:{0}] Retrieving named pipes ...", pid));
 
             // Enumerate all system handles, then filter by PID
             foreach (var h in NtSystemInfo.GetHandles().Where(h => h.ProcessId == pid))
             {
                 try
                 {
+                    string objectType = h.ObjectType;
+
+                    if (!string.Equals(objectType, "File", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var hProcess = Native.OpenProcess(Native.PROCESS_DUP_HANDLE, false, h.ProcessId);
+                    var dupHandle = IntPtr.Zero;
+
+                    bool ok = Native.DuplicateHandle(
+                        hProcess,
+                        h.Handle,
+                        Native.GetCurrentProcess(),
+                        out dupHandle,
+                        0,
+                        false,
+                        Native.DUPLICATE_SAME_ACCESS
+                    );
+
+                    if (!ok)
+                    {
+                        continue;
+                    }
+
+                    string fullPath = NtQuery.GetObjectName(dupHandle);
+
+                    if (string.IsNullOrEmpty(fullPath))
+                        continue;
+
+                    if (!fullPath.StartsWith(@"\Device\NamedPipe\", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    Logger.LogDebug(String.Format("[PID:{0}] {1}", pid, fullPath));
+
+                    var namedPipeRef = getNamedPipeRef(fullPath);
+                    SecurityDescriptorInfo sd = null;
+                    
+                    try
+                    {
+                        sd = Win32Security.GetSecurityDescriptor(namedPipeRef.Win32Path);
+                    }
+                    catch (Exception ex)
+                    {
+                    }
+                    
+
+                    results.Add(new NamedPipeEndpoint
+                    {
+                        Pipe = getNamedPipeRef(fullPath),
+                        Security = new NamedPipeSecurityInfo
+                        {
+                            OwnerName = sd?.OwnerName,
+                            OwnerSid = sd?.OwnerSid,
+                            Sddl = sd?.Sddl
+                        },
+                        ServerPid = pid
+                    });
+
+
+
+                    // /////////////////////////////
+
+                    /*
                     // Duplicate handle into current process and query object
                     using var obj = h.GetObject().DuplicateObject();
 
@@ -50,8 +132,11 @@ namespace WTBM.Collectors.IPC
                             OwnerName = owner.QualifiedName,
                             OwnerSid = owner.Sddl,
                             Sddl = obj.SecurityDescriptor.ToString()
-                        }
+                        },
+                        ServerPid = pid
                     });
+
+                    */
 
                 }
                 catch (Exception ex)
@@ -63,6 +148,7 @@ namespace WTBM.Collectors.IPC
                     }
                     else
                     {
+                        Logger.LogDebug(String.Format("[PID:{0}] Error", ex.ToString()));
                         return results;
                     }
                 }

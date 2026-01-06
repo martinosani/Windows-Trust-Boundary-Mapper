@@ -19,7 +19,7 @@ namespace WTBM.Rules.Engine
             if (snapshots is null) throw new ArgumentNullException(nameof(snapshots));
             if (rules is null) throw new ArgumentNullException(nameof(rules));
 
-            var ctx = new RuleContext(snapshots, namedPipes);
+            var ctx = new RuleContext(rules, snapshots, namedPipes);
 
             var results = new List<Finding>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

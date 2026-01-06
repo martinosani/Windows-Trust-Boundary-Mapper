@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Text;
 using WTBM.Domain.IPC;
 using WTBM.Domain.Processes;
+using WTBM.Rules.Abstractions;
+using WTBM.Rules.Engine;
 
 namespace WTBM.Core
 {
@@ -20,8 +22,13 @@ namespace WTBM.Core
         
         public IReadOnlyDictionary<string, List<ProcessSnapshot>> ByAuthenticationId { get; }
 
-        public RuleContext(IReadOnlyList<ProcessSnapshot> snapshots, IReadOnlyList<NamedPipeEndpoint> namedPipes)
+        public IReadOnlyList<IRule> Rules => _rules;
+
+        private readonly List<IRule> _rules = null;
+
+        public RuleContext(IReadOnlyList<IRule> rules, IReadOnlyList<ProcessSnapshot> snapshots, IReadOnlyList<NamedPipeEndpoint> namedPipes)
         {
+            _rules = new List<IRule>(rules) ?? throw new ArgumentNullException(nameof(rules));
             Snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
             PrivilegeStats = PrivilegeStats.Build(Snapshots);
 
@@ -40,6 +47,26 @@ namespace WTBM.Core
                 .Where(s => !string.IsNullOrWhiteSpace(s.Token.AuthenticationId))
                 .GroupBy(s => s.Token.AuthenticationId!, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+        }
+
+        public IRule GetRule(string ruleId)
+        {
+            var rule = Rules.FirstOrDefault(r => string.Compare(r.RuleId, ruleId, StringComparison.OrdinalIgnoreCase) == 0);
+            
+            if (rule == null)
+            {
+                foreach (var r in RuleRegistry.CreateFromSelection(ruleId))
+                {
+                    _rules.Add(r);
+                }
+            }
+
+            rule = Rules.FirstOrDefault(r => string.Compare(r.RuleId, ruleId, StringComparison.OrdinalIgnoreCase) == 0);
+
+            if (rule == null)
+                throw new Exception(String.Format("Rule {0} not found.", ruleId));
+
+            return rule;
         }
 
         public ProcessSnapshot? TryGetByPid(int pid)

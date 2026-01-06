@@ -112,6 +112,19 @@ namespace WTBM
 
                 var processSnapshots = processes.Select(p => tokenCollector.TryCollect(p)).ToList();
 
+                var namedPipes = new List<NamedPipeEndpoint>();
+
+                if (getNamedPipes)
+                {
+                    var npe = new NamedPipeExtractor();
+
+                    foreach (var process in processes)
+                    {
+                        var pipes = npe.GetNamedPipesFromProcessHandles(process.Pid);
+                        namedPipes.AddRange(pipes);
+                    }
+                }
+
                 if (enumeration)
                 {
                     if (top.HasValue && top.Value > 0)
@@ -122,21 +135,10 @@ namespace WTBM
                     ProcessSnapshotConsoleSummaryWriter.WriteSummary(processSnapshots);
                 }
 
-                if (getNamedPipes)
-                {
-                    var namedPipeEndpoints = Array.Empty<NamedPipeEndpoint>();
-                    var namedPipeExtract = new NamedPipeExtractor();
-
-                    foreach (var process in processes)
-                    {
-                        var pipes = namedPipeExtract.GetNamedPipesFromProcessHandles(process.Pid);
-                    }
-                }
-
                 if (!String.IsNullOrEmpty(rule))
                 {
                     var rules = RuleRegistry.CreateFromSelection(rule);
-                    var findings = RuleEngine.EvaluateAll(processSnapshots, Array.Empty<NamedPipeEndpoint>(), rules);
+                    var findings = RuleEngine.EvaluateAll(processSnapshots, namedPipes, rules);
 
                     var max = top.HasValue ? top.Value : -1;
                     FindingsConsoleWriter.WriteSummary(findings, processSnapshots, max);

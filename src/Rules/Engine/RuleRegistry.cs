@@ -14,7 +14,8 @@ namespace WTBM.Rules.Engine
             new Dictionary<string, Func<IRule>>(StringComparer.OrdinalIgnoreCase)
             {
                 // Markers
-                ["HighImpactPrivilegeProcesses"] = () => new HighImpactPrivilegeProcessesRule(),
+                ["PTTBM.PRIV.001"] = () => new HighImpactPrivilegeProcessesRule(),
+                ["PTTBM.PRIV.002"] = () => new HighAuthorityNamedPipeInventoryRule(),
 
                 // Future:
                 // ["legacy-sandbox"] = () => new LegacySandboxTokenRule(),
