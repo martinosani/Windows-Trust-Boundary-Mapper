@@ -35,28 +35,28 @@ namespace WTBM
 
             var enumerationOption = new Option<bool>("enumeration", "--enumeration")
             {
-                Description = "Enumerate processes and associated token info; print a flat list"
+                Description = "Enumerates processes and associated token information and prints a flat summary list."
             };
 
             var ruleOption = new Option<string>("rule", "--rule", "-r")
             {
-                Description = "Rule to execute (highimpact, default)"
+                Description = "Selects which rule set to execute against the collected process snapshots."
             };
 
             var processPidOption = new Option<int>("process-pid", "--process-pid", "-pid")
             {
-                Description = "Process PID",
+                Description = "Restricts enumeration and rule evaluation to a specific process ID.",
                 DefaultValueFactory = _ => -1
             };
 
             var ruleExplainOption = new Option<bool>("rule-explain", "--rule-explain")
             {
-                Description = "Explain the rule for the process with PID in <process-pid>"
+                Description = "Prints a detailed explanation for each rule finding associated with the process specified via --process-pid."
             };
 
             var topOption = new Option<int?>("top", "--top")
             {
-                Description = "Show only top N findings"
+                Description = "Limits the number of process snapshots printed during enumeration."
             };
 
             var verboseOption = new Option<bool>("verbose", "--verbose", "-v")
@@ -64,9 +64,10 @@ namespace WTBM
                 Description = "Verbose output"
             };
 
-            var noPauseOption = new Option<bool>("noPause", "--no-pause")
+            var pauseOption = new Option<bool>("pause", "--pause")
             {
-                Description = "Do not pause at the end"
+                Description = "Enable the interactive pause at the end of execution.",
+                DefaultValueFactory = _ => false
             };
 
             processCommand.Add(enumerationOption);
@@ -75,7 +76,7 @@ namespace WTBM
             processCommand.Add(ruleExplainOption);
             processCommand.Add(topOption);
             processCommand.Add(verboseOption);
-            processCommand.Add(noPauseOption);
+            processCommand.Add(pauseOption);
 
             processCommand.SetAction(result =>
             {
@@ -84,14 +85,13 @@ namespace WTBM
                 int? processPid = result.GetValue(processPidOption);
                 int? top = result.GetValue(topOption);
                 bool verbose = result.GetValue(verboseOption);
-                bool noPause = result.GetValue(noPauseOption);
+                bool pause = result.GetValue(pauseOption);
                 bool explainRule = result.GetValue(ruleExplainOption);
 
                 var processes = new ProcessEnumerator().Enumerate();
                 var tokenCollector = new TokenCollector();
 
-                Logger.LogDebug(String.Format("enumeration={0} - rule={1} - processPid={2}",
-                    enumeration, rule, processPid));
+                // Logger.LogDebug(String.Format("enumeration={0} - rule={1} - processPid={2}", enumeration, rule, processPid));
 
                 if (processPid != null && processPid > -1)
                 {
@@ -123,13 +123,16 @@ namespace WTBM
                     var max = top.HasValue ? top.Value : -1;
                     FindingsConsoleWriter.WriteSummary(findings, processSnapshots, max);
 
-                    if (explainRule && findings.Count > 0)
+                    if (explainRule && processes.Count == 1)
                     {
-                        FindingsConsoleWriter.Explain(findings[0], processSnapshots);
+                        foreach (var finding in findings)
+                        {
+                            FindingsConsoleWriter.Explain(finding, processSnapshots);
+                        }
                     }
                 }
 
-                if (!noPause)
+                if (pause)
                 {
                     Console.WriteLine();
                     Console.WriteLine("Press ENTER to exit ...");
