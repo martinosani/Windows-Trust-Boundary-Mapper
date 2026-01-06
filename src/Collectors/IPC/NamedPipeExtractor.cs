@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Xml.Linq;
 using WTBM.Collectors.IPC.OLD;
 using WTBM.Domain.IPC;
 using WTBM.NtNative;
@@ -28,8 +29,6 @@ namespace WTBM.Collectors.IPC
                 Logger.LogDebug("Cannot set SeDebugPrivilege privilege.");
             }
         }
-
-       
 
         public IReadOnlyList<NamedPipeEndpoint> GetNamedPipesFromProcessHandles(int pid)
         {
@@ -76,9 +75,9 @@ namespace WTBM.Collectors.IPC
                     if (!fullPath.StartsWith(@"\Device\NamedPipe\", StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    Logger.LogDebug(String.Format("[PID:{0}] {1}", pid, fullPath));
-
                     var namedPipeRef = getNamedPipeRef(fullPath);
+                    Logger.LogDebug(String.Format("[PID:{0}] NtPath={1} | Win32Path={2}", pid, namedPipeRef.NtPath, namedPipeRef.Win32Path));
+
                     NamedPipeSecurityInfo npsi = null;
                     
                     try
@@ -102,7 +101,7 @@ namespace WTBM.Collectors.IPC
 
                     var endpoint = new NamedPipeEndpoint
                     {
-                        Pipe = getNamedPipeRef(fullPath),
+                        Pipe = namedPipeRef,
                         Security = npsi,
                         ServerPid = pid
                     };
@@ -206,21 +205,32 @@ namespace WTBM.Collectors.IPC
             };
         }
 
-        private NamedPipeRef getNamedPipeRef(string path)
+        private NamedPipeRef getNamedPipeRef(string ntFullPath)
         {
-            var name = NormalizePipeName(path);
-            if (!string.IsNullOrEmpty(name))
-            {
-                return new NamedPipeRef(
-                    Name: name,
-                    Win32Path: PipeRootWin32 + name,
-                    NtPath: PipeRootNt + name
-                );
-            }
+            if (string.IsNullOrWhiteSpace(ntFullPath))
+                return null;
+
+            // Expect: \Device\NamedPipe\<relative>
+            if (!ntFullPath.StartsWith(PipeRootNt, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            // Keep the relative name EXACTLY as-is (including backslashes).
+            var relativeName = ntFullPath.Substring(PipeRootNt.Length);
+            if (string.IsNullOrWhiteSpace(relativeName))
+                return null;
+
+            var displayName = NormalizePipeNameForDisplay(relativeName);
+
+            return new NamedPipeRef(
+                Name: displayName ?? ntFullPath,
+                Win32Path: PipeRootWin32 + displayName,
+                NtPath: PipeRootNt + displayName
+            );
+
             return null;
         }
 
-        private string NormalizePipeName(string? raw)
+        private string NormalizePipeNameForDisplay(string? raw)
         {
             if (string.IsNullOrWhiteSpace(raw))
                 return string.Empty;

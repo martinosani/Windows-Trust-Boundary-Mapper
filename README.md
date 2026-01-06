@@ -2,20 +2,41 @@
 
 ## Overview
 
-WTBM is a small command-line tool I am building as part of my study of Windows internals.  
-The goal is practical learning: understanding how Windows processes, tokens, and trust boundaries are represented and how they can be inspected from user space.
+WTBM (Windows Trust Boundary Mapper) is a command-line tool developed as part of an ongoing,
+hands-on study of Windows internals. The project is intentionally practical and exploratory:
+the primary goal is to understand how Windows processes, security tokens, privileges, and
+inter-process communication (IPC) mechanisms contribute to trust and authority boundaries
+inside a Windows system.
 
-The current focus of the tool is process enumeration and basic authority classification. By collecting token-related information, WTBM makes it possible to identify processes running with higher authority and to observe how that authority is expressed through the Windows security model. This is treated as a foundational step rather than a complete analysis.
+Rather than attempting to provide a complete security assessment solution, WTBM focuses on
+making these internal concepts observable from user space, using a rule-based approach that
+captures and documents specific aspects of system behavior.
 
-The project is structured to grow incrementally. Future stages are expected to build on the process-level view, using high-authority processes as reference points to study how lower-integrity or lower-privileged processes may interact with them, and where meaningful trust boundaries exist. These extensions are not the focus of the current implementation, but they inform the direction of the work.
+The tool is work in progress and evolves alongside the research itself. This repository
+documents the current capabilities and the rationale behind them.
 
-WTBM is intentionally simple, exploratory, and work in progress. This repository documents the behavior of the tool as it exists today, with changes reflecting ongoing study and experimentation rather than a finished design.
+---
+
+## Scope and intent
+
+WTBM is designed to support:
+
+- Exploration of Windows process authority levels and token privileges
+- Identification of processes running with high-impact or system-level privileges
+- Inventory of IPC surfaces (currently named pipes) exposed by high-authority processes
+- Study of how trust boundaries emerge from the interaction of privileges, integrity levels,
+  and object security descriptors
+
+The output of WTBM should be treated as observational data. Findings are informational by
+design and intended to guide further manual analysis and experimentation.
 
 ---
 
 ## Command syntax
 
+```
 WTBM.exe process [options]
+```
 
 ---
 
@@ -23,20 +44,26 @@ WTBM.exe process [options]
 
 ### Purpose
 
-Enumerate Windows processes and optionally evaluate rule sets against their token-related properties.
+The `process` command enumerates running Windows processes, collects token-related information,
+and optionally evaluates one or more rules. Depending on the selected options, it can also
+enumerate named pipes observed in the context of specific processes.
 
-### Behavior
+---
 
-When invoked, the command:
+## Execution flow
 
-1. Enumerates running Windows processes.
-2. Collects security token information for each process.
-3. Builds in-memory process snapshots.
-4. Optionally prints a flat enumeration summary.
-5. Optionally evaluates rule sets against the collected snapshots.
-6. Optionally explains the first rule finding.
+When executed, the `process` command follows this high-level flow:
 
-All operations are executed locally and synchronously.
+1. Enumerate all running Windows processes.
+2. Optionally restrict analysis to a specific process ID.
+3. Collect token and privilege information and build process snapshots.
+4. Optionally enumerate named pipes observed via handle enumeration.
+5. Optionally print a flat enumeration summary.
+6. Evaluate selected rules against the collected data.
+7. Optionally print detailed explanations for rule findings.
+8. Optionally pause before exit.
+
+All operations are local and synchronous.
 
 ---
 
@@ -47,32 +74,39 @@ All operations are executed locally and synchronously.
 Type: boolean  
 Default: false  
 
-Enumerates processes and associated token information and prints a flat summary list.
+Enumerates processes and associated token information and named pipes (if enabled) and prints a flat summary.
 
-If --top is provided and greater than zero, only the first N snapshots are printed.
+The `--top` option can be used to limit the number of printed snapshots.
 
 ---
 
 ### --rule, -r
 
 Type: string  
-Default: empty / not set  
+Default: not set  
 
-Selects which rule set to execute against the collected process snapshots.
-
-If the value is empty or not provided, rule evaluation is skipped.  
-If provided, rules are created using the selection string and evaluated against all collected snapshots.
+Specifies which rule to evaluate. Multiple executions may be required to run different rules.
 
 ---
 
 ### --process-pid, -pid
 
 Type: integer  
-Default: -1  
+Default: not set  
 
-Restricts enumeration and rule evaluation to a specific process ID.
+Restricts enumeration, named pipe collection, and rule evaluation to a specific process ID.
 
-If the PID is not found, execution fails with an error.
+---
+
+### --named-pipes
+
+Type: boolean  
+Default: false  
+
+Enables enumeration of named pipes observed through handle enumeration in the selected processes.
+
+Named pipe enumeration is best-effort and may be partially restricted by process protection
+mechanisms or access controls enforced by the operating system.
 
 ---
 
@@ -81,24 +115,21 @@ If the PID is not found, execution fails with an error.
 Type: boolean  
 Default: false  
 
-Prints a detailed explanation for each rule finding associated with the process specified via `--process-pid`.
+Prints a detailed explanation of the findings produced by the selected rule.
 
-This option is intended to be used only when a specific process is selected using `--process-pid`.  
-If no process PID is provided, rule explanations are not produced.
-
-When enabled, the tool iterates over all rule findings generated for the selected process and prints an explanation for each of them, based on the collected process snapshots.
+This option is only effective when `--process-pid` is specified, as explanations are scoped
+to a single process.
 
 ---
 
 ### --top
 
-Type: integer (nullable)  
+Type: integer  
 Default: not set  
 
 Limits the number of process snapshots printed during enumeration.
 
-This option is effective only when used together with `--enumeration`.  
-If `--enumeration` is not specified, this option has no effect.
+Effective only when used together with `--enumeration`.
 
 ---
 
@@ -107,40 +138,88 @@ If `--enumeration` is not specified, this option has no effect.
 Type: boolean  
 Default: false  
 
-Enable the interactive pause at the end of execution.
+Pauses execution before exit, waiting for user input.
 
 ---
 
-## Execution flow
+## Rules
 
-1. Enumerate all running Windows processes.
-2. If `--process-pid` is specified, restrict the analysis to the selected process.
-3. Collect token-related information and build process snapshots.
-4. If `--enumeration` is enabled, print a summary of the collected snapshots.
-5. If rule evaluation is enabled, evaluate the selected rules against the process snapshots.
-6. If `--rule-explain` is enabled and a process was selected, print an explanation for each rule finding associated with that process.
-7. If `--no-pause` is not specified, wait for user input before exiting.
+WTBM uses a rule-based model to express observations about authority and trust boundaries.
+Rules do not attempt to determine exploitability; instead, they surface conditions that are
+relevant for further investigation.
+
+### PTTBM.PRIV.001 – HighImpactPrivilegeProcessesRule
+
+This rule identifies processes that hold high-impact privileges, i.e. privileges that have
+significant influence over system-wide security boundaries.
+
+The rule helps answer questions such as:
+- Which processes have privileges that materially affect system isolation?
+- Which high-privilege processes are present on the system at runtime?
+
+Findings produced by this rule are informational and process-centric.
+
+---
+
+### PTTBM.PRIV.002 – HighAuthorityNamedPipeInventoryRule
+
+This rule inventories named pipes observed in high-authority processes. It builds on the
+results of `PTTBM.PRIV.001` and focuses on IPC surfaces that may represent trust boundary
+interfaces between processes of different authority or integrity levels.
+
+The rule produces one informational finding per process, containing an inventory of observed
+named pipes and associated security metadata.
+
+#### Privilege requirements
+
+`PTTBM.PRIV.002` must be executed with administrative privileges.
+
+During execution, the tool attempts to enable the `SeDebugPrivilege` privilege in the current
+process token in order to duplicate and inspect handles owned by other processes:
+
+```csharp
+using var token = NtToken.OpenProcessToken(
+    NtProcess.Current,
+    TokenAccessRights.AdjustPrivileges | TokenAccessRights.Query
+);
+token.SetPrivilege(TokenPrivilegeValue.SeDebugPrivilege, PrivilegeAttributes.Enabled);
+```
+
+Even with this privilege enabled, named pipe enumeration remains best-effort. Some processes,
+such as protected or PPL processes, may still restrict handle duplication or object inspection.
 
 ---
 
 ## Examples
 
 Enumerate processes and print a flat summary:
+
 ```
 WTBM.exe process --enumeration
 ```
 
 Enumerate only the first 20 process snapshots:
+
 ```
 WTBM.exe process --enumeration --top 20
 ```
 
-Evaluate rules across all processes:
+Evaluate the high-impact privilege rule across all processes:
+
 ```
-WTBM.exe process --rule HighImpactPrivilegeProcesses
+WTBM.exe process --rule PTTBM.PRIV.001
 ```
 
-Evaluate rules for a specific process and explain all findings:
+Evaluate the high-authority named pipe inventory rule for a specific process and explain findings:
+
 ```
-WTBM.exe process --process-pid 1234 --rule HighImpactPrivilegeProcesses --rule-explain
+WTBM.exe process --rule PTTBM.PRIV.002 --process-pid <process_id> --rule-explain
 ```
+
+---
+
+## Notes
+
+WTBM is a research-driven tool. Its structure, rules, and outputs reflect an evolving
+understanding of Windows internals rather than a finalized security model. Design decisions
+prioritize clarity, correctness, and traceability over completeness.

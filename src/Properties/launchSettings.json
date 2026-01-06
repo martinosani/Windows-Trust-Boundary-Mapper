@@ -2,7 +2,7 @@
   "profiles": {
     "WTBM": {
       "commandName": "Project",
-      "commandLineArgs": "process --rule PTTBM.PRIV.002"
+      "commandLineArgs": "process --enumeration --named-pipes"
     }
   }
 }
