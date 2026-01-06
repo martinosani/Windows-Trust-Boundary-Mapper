@@ -33,7 +33,9 @@ namespace WTBM.Collectors.IPC
 
         public IReadOnlyList<NamedPipeEndpoint> GetNamedPipesFromProcessHandles(int pid)
         {
-            var results = new List<NamedPipeEndpoint>();
+            //var results = new List<NamedPipeEndpoint>();
+            var map = new Dictionary<string, NamedPipeEndpoint>(StringComparer.OrdinalIgnoreCase);
+
             int errorCounter = 0;
 
             // Logger.LogDebug(String.Format("[PID:{0}] Retrieving named pipes ...", pid));
@@ -77,29 +79,44 @@ namespace WTBM.Collectors.IPC
                     Logger.LogDebug(String.Format("[PID:{0}] {1}", pid, fullPath));
 
                     var namedPipeRef = getNamedPipeRef(fullPath);
-                    SecurityDescriptorInfo sd = null;
+                    NamedPipeSecurityInfo npsi = null;
                     
                     try
                     {
-                        sd = Win32Security.GetSecurityDescriptor(namedPipeRef.Win32Path);
+                        var sd = Win32Security.GetSecurityDescriptor(namedPipeRef.Win32Path);
+                        npsi = new NamedPipeSecurityInfo
+                        {
+                            OwnerName = sd.OwnerName,
+                            OwnerSid = sd.OwnerSid,
+                            Sddl = sd.Sddl,
+                        };
                     }
                     catch (Exception ex)
                     {
+                        npsi = new NamedPipeSecurityInfo
+                        {
+                            Error = ex.Message
+                        };
                     }
                     
 
-                    results.Add(new NamedPipeEndpoint
+                    var endpoint = new NamedPipeEndpoint
                     {
                         Pipe = getNamedPipeRef(fullPath),
-                        Security = new NamedPipeSecurityInfo
-                        {
-                            OwnerName = sd?.OwnerName,
-                            OwnerSid = sd?.OwnerSid,
-                            Sddl = sd?.Sddl
-                        },
+                        Security = npsi,
                         ServerPid = pid
-                    });
+                    };
 
+                    var key = endpoint.Pipe.NtPath;
+
+                    if (!map.ContainsKey(key))
+                    {
+                        map[key] = endpoint;
+                    }
+                    else
+                    {
+                        map[key] = MergePreferMoreComplete(map[key], endpoint);
+                    }
 
 
                     // /////////////////////////////
@@ -149,12 +166,44 @@ namespace WTBM.Collectors.IPC
                     else
                     {
                         Logger.LogDebug(String.Format("[PID:{0}] Error", ex.ToString()));
-                        return results;
+                        return map.Values
+                            .OrderBy(e => e.Pipe.NtPath, StringComparer.OrdinalIgnoreCase)
+                            .ToArray();
                     }
                 }
             }
 
-            return results;
+            return map.Values
+                .OrderBy(e => e.Pipe.NtPath, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        private static NamedPipeEndpoint MergePreferMoreComplete(NamedPipeEndpoint a, NamedPipeEndpoint b)
+        {
+            bool aOk = a.Security != null && string.IsNullOrEmpty(a.Security.Error) && !string.IsNullOrEmpty(a.Security.Sddl);
+            bool bOk = b.Security != null && string.IsNullOrEmpty(b.Security.Error) && !string.IsNullOrEmpty(b.Security.Sddl);
+
+            var best = bOk && !aOk ? b : a;
+
+            var tags = (a.Tags ?? Array.Empty<string>())
+                .Concat(b.Tags ?? Array.Empty<string>())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            return new NamedPipeEndpoint
+            {
+                Pipe = best.Pipe,
+                Security = best.Security,
+                ReachableFromMedium = best.ReachableFromMedium,
+                ReachableFromLow = best.ReachableFromLow,
+                ReachableFromAppContainer = best.ReachableFromAppContainer,
+                ReachabilityConfidence = best.ReachabilityConfidence,
+                ReachabilityNotes = best.ReachabilityNotes,
+                ServerPid = best.ServerPid,
+                CandidateServerPids = best.CandidateServerPids,
+                ServerQueryError = best.ServerQueryError,
+                Tags = tags
+            };
         }
 
         private NamedPipeRef getNamedPipeRef(string path)
