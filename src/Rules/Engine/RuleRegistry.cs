@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using WTBM.Rules.Abstractions;
 using WTBM.Rules.Markers;
+using WTBM.Rules.Markers.HighAuthorityNamedPipeInventory;
 
 namespace WTBM.Rules.Engine
 {

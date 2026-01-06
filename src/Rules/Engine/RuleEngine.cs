@@ -34,22 +34,31 @@ namespace WTBM.Rules.Engine
                 catch (Exception ex)
                 {
                     // Best-effort: a rule should never break the run.
-                    results.Add(new Finding(
-                        r.RuleId,
-                        r.Title,
-                        FindingSeverity.Info,
-                        FindingCategory.Visibility,
-                        FindingSubjectType.Boundary,
-                        "WTBM.ENGINE.001",
-                        $"Rule failed: {r.RuleId}",
-                        0,
-                        ex.GetType().Name,
-                        "Inspect logs / enable verbose diagnostics.",
-                        Array.Empty<string>(),
-                        Array.Empty<int>(),
-                        Array.Empty<string>(),
-                        Array.Empty<InvestigationStep>(),
-                        $"WTBM.ENGINE.001:{r.RuleId}"));
+                    var evidence = new TextEvidence(
+                        KindValue: "engine-error",
+                        SummaryValue: $"Rule failed: {r.RuleId} ({ex.GetType().Name})"
+                    );
+
+                    var f = new Finding(
+                        RuleId: "WTBM.ENGINE.001",
+                        Title: "Rule execution failure",
+                        Severity: FindingSeverity.Info,
+                        Category: FindingCategory.Visibility,
+                        SubjectType: FindingSubjectType.Boundary,
+                        SubjectId: r.RuleId,
+                        SubjectDisplayName: $"Rule failed: {r.RuleId}",
+                        Score: 0,
+                        Evidence: evidence,
+                        Recommendation: "Inspect logs / enable verbose diagnostics.",
+                        Tags: Array.Empty<string>(),
+                        RelatedPids: Array.Empty<int>(),
+                        ConceptRefs: Array.Empty<string>(),
+                        NextSteps: Array.Empty<InvestigationStep>(),
+                        Key: $"WTBM.ENGINE.001:{r.RuleId}"
+                    );
+
+                    if (seen.Add(f.Key))
+                        results.Add(f);
                     continue;
                 }
 

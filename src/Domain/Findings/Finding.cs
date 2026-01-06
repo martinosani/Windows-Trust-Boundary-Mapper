@@ -38,7 +38,9 @@ namespace WTBM.Domain.Findings
         string? SubjectDisplayName,
 
         int Score,
-        string Evidence,
+
+        IFindingEvidence Evidence,
+
         string Recommendation,
 
         IReadOnlyList<string> Tags,

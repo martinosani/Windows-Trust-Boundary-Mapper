@@ -99,6 +99,11 @@ namespace WTBM.Rules.Markers
                         process: process,
                         stats: context.PrivilegeStats);
 
+                    var evidence = new TextEvidence(
+                        KindValue: "token-privileges",
+                        SummaryValue: $"Enabled high-impact privileges: {string.Join(", ", enabled)}"
+                    );
+
                     yield return FindingFactory.Create(
                         rule: this,
                         severity: FindingSeverity.Info,
@@ -106,9 +111,9 @@ namespace WTBM.Rules.Markers
 
                         subjectType: FindingSubjectType.Process,
                         subjectId: process.Pid.ToString(),
-                        subjectDisplayName: process.Name,
+                        subjectDisplayName: String.Format("[{0}]{1}", process.Pid, process.Name),
 
-                        evidence: $"Enabled high-impact privileges: {string.Join(", ", enabled)}",
+                        evidence: evidence,
                         recommendation: BuildRecommendationEnabled(token, enabled),
 
                         tags: new[] { "high-impact-privilege", "priv-enabled" }
@@ -132,6 +137,11 @@ namespace WTBM.Rules.Markers
                         process: process,
                         stats: context.PrivilegeStats);
 
+                    var evidence = new TextEvidence(
+                        KindValue: "token-privileges",
+                        SummaryValue: $"High-impact privileges present but disabled: {string.Join(", ", presentDisabled)}"
+                    );
+
                     yield return FindingFactory.Create(
                         rule: this,
                         severity: FindingSeverity.Info,
@@ -139,9 +149,9 @@ namespace WTBM.Rules.Markers
 
                         subjectType: FindingSubjectType.Process,
                         subjectId: process.Pid.ToString(),
-                        subjectDisplayName: process.Name,
+                        subjectDisplayName: String.Format("[{0}]{1}", process.Pid, process.Name),
 
-                        evidence: $"High-impact privileges present but disabled: {string.Join(", ", presentDisabled)}",
+                        evidence: evidence,
                         recommendation: BuildRecommendationPresentDisabled(token, presentDisabled),
 
                         tags: new[] { "high-impact-privilege", "priv-present-disabled" }

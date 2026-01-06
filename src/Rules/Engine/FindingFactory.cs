@@ -18,7 +18,7 @@ namespace WTBM.Rules.Engine
             string subjectId,
             string? subjectDisplayName,
 
-            string evidence,
+            IFindingEvidence evidence,
             string recommendation,
 
             IReadOnlyList<string> tags,
@@ -58,7 +58,7 @@ namespace WTBM.Rules.Engine
                 subjectDisplayName,
                 RuleHelpers.ClampScore(score),
                 evidence,
-                recommendation,
+                recommendation ?? string.Empty,
                 tags,
                 relatedPids,
                 conceptRefs,
