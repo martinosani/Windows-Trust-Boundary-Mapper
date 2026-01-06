@@ -190,129 +190,183 @@ Common high-value failure patterns seen in real-world LPEs and broker escapes:
 
 ---
 
-## Enumeration and extraction (tooling strategy)
+## Named pipe extraction strategy (high-authority processes)
 
-#### Phase A — Enumerate names
-A practical enumerator lists pipe names via the Win32 namespace:
-- `\\.\pipe\*`
+This section documents the current strategy implemented in WTBM to extract **named pipes associated with high-authority processes** and to enrich them with **stable identifiers** and **security metadata**.
 
-This is a snapshot of currently visible names. Pipes can appear/disappear quickly. Treat absence as “not observed”, not “does not exist”.
+The approach is intentionally low-level and handle-centric. It is designed for research correctness on live Windows systems, where race conditions, protected processes, and kernel edge cases are expected and must be handled explicitly.
 
 ---
 
-#### Phase B — Enrich each pipe with security metadata
-You generally need multiple strategies because success depends on runtime state and privileges.
+### Rationale: process-attributed inventory
 
-### Strategy 1: NT object path query (`\Device\NamedPipe\<Name>`)
-**Goal:** retrieve owner/DACL/label directly from the kernel object.
+WTBM is not interested in producing a global list of visible pipes under `\\.\pipe\*`.
+The primary research question is instead:
 
-- Open `\Device\NamedPipe\<Name>` with `READ_CONTROL` to obtain owner/group/DACL.
-- Query SD using `NtQuerySecurityObject`.
-- If you need the integrity label, request `LABEL_SECURITY_INFORMATION` (may require `ACCESS_SYSTEM_SECURITY`).
+> Which IPC endpoints are actually associated with a specific high-authority process at runtime?
 
-**Why this is useful**
-- Direct kernel object semantics.
-- Clean NTSTATUS failure codes (good for deterministic diagnostics).
-- Good match for a research tool that wants explainable outcomes.
+To answer this, the extractor starts from the process and works outward through its handle table, rather than starting from the global pipe namespace.
 
-**Common failure**
-- `STATUS_PIPE_BUSY (0xC00000AC)` when no instance is available at that moment.
+This design choice allows later correlation rules to reason about **trust boundaries** in terms of concrete process-to-endpoint relationships.
 
 ---
 
-### Strategy 2: Win32 fallback (`\\.\pipe\<Name>`)
-**Goal:** retrieve owner/DACL/label using a higher-level API.
+### Privilege model
 
-- Call `GetNamedSecurityInfo` on `\\.\pipe\<Name>`.
-- If it fails with `ERROR_PIPE_BUSY (231)`, call `WaitNamedPipe` with a short timeout and retry.
+The extractor attempts to enable `SeDebugPrivilege` at initialization time in order to:
 
-**Why this is useful**
-- Often succeeds in cases where the NT path does not.
-- Practical for broad inventory.
+- duplicate handles from other processes,
+- inspect metadata of objects owned by higher-privilege processes.
 
-**Common failure**
-- `WaitNamedPipe` timeout (`ERROR_SEM_TIMEOUT (121)`), indicating the pipe remained busy in the allowed window.
+This step reduces avoidable access failures but does not guarantee full visibility (e.g. protected or PPL processes may still restrict access).
 
 ---
 
-### Strategy 3: Multi-pass sampling (recommended for coverage)
-If you need higher coverage without long blocking waits:
-- Run multiple passes over the pipe list (e.g., 2–5 passes).
-- Space passes (e.g., 100–500ms).
-- Merge results and keep the “best” enrichment per pipe.
+### High-level extraction pipeline
 
-This often improves coverage for hot pipes where contention is transient.
+For each target process ID, the extractor performs the following steps:
 
----
+1. Enumerate all system handles and filter by the target PID.
+2. Keep only handles whose object type is `File`.
+3. Duplicate each candidate handle into the current process.
+4. Apply conservative access-mask and attribute filters.
+5. Resolve the kernel object name with a strict timeout.
+6. Identify named pipe objects via the NT namespace.
+7. Build stable pipe identifiers (NT path and Win32 path).
+8. Retrieve the security descriptor **by handle**.
+9. Deduplicate and merge results per pipe.
 
-### Strategy 4: Privileged mode (for label and restricted pipes)
-If you need MIL reliably or want to reduce `ACCESS_DENIED`:
-- Run elevated.
-- Optionally enable the relevant privileges for SACL/label reads (policy-dependent).
-
-Do not silently assume elevated access. Your tool should record whether it was run elevated and what information was actually obtainable.
-
----
-
-## PIPE_BUSY is normal (how to handle it correctly)
-
-In live systems, it is common to see:
-- NT open fail with `STATUS_PIPE_BUSY (0xC00000AC)`
-- Win32 security query fail with `ERROR_PIPE_BUSY (231)`
-- `WaitNamedPipe` timeout with `ERROR_SEM_TIMEOUT (121)`
-
-This does **not** mean:
-- the pipe has no security descriptor, or
-- the pipe is not reachable, or
-- the endpoint is safe.
-
-It means that during the observation window, no instance was available to service the open/query path used.
-
-**Tooling requirement:** treat busy as a first-class state, not as “unknown error”.
-- Apply bounded retries (backoff on NT, `WaitNamedPipe` on Win32).
-- Record a structured status: `ok`, `busy`, `denied`, `error`.
-- Keep the raw status code (NTSTATUS / Win32 error) for explainability.
+The final output is a sorted list of `NamedPipeEndpoint` objects keyed by the pipe NT path.
 
 ---
 
-#### Why `PIPE_BUSY` exists (kernel-level intuition)
-`PIPE_BUSY` does not mean that the pipe name is unavailable.  
-It means that **all server instances associated with that name are currently engaged**.
+### Handle enumeration and initial filtering
 
-Internally:
-- The name exists in the `\Device\NamedPipe` namespace.
-- One or more server instances were created with a maximum instance count.
-- Client connections are bound to instances, not to the name itself.
+WTBM uses a system-wide handle snapshot and restricts it to a specific process ID.
 
-Security descriptor queries often require opening the object in a way that interacts with instance state.  
-If no instance is available to service the open, the system returns `PIPE_BUSY`.
-
-This explains why:
-- Enumeration succeeds (the name is visible),
-- Security queries fail transiently,
-- Retrying later may succeed without any configuration change.
-
-From a research perspective, this is a **liveness constraint**, not a protection mechanism.
+Only handles whose `ObjectType` is reported as `File` are considered. Named pipes are exposed as file objects at the handle level, so this filter removes the majority of unrelated handles early.
 
 ---
 
-## How to interpret failures (research correctness)
+### Handle duplication
 
-- **`PIPE_BUSY`**
-  - Operational contention.
-  - Not evidence of safety.
-  - Usually addressed by retries, multi-pass sampling, or longer timeouts.
+To query object metadata safely from user space, each candidate handle is duplicated into the current process using `DuplicateHandle` with `DUPLICATE_SAME_ACCESS`.
 
-- **`ACCESS_DENIED`**
-  - Visibility boundary.
-  - Not evidence of safety; it may indicate the SD is restricted to other principals.
-  - In reporting, treat as “not observable under current token”.
+All subsequent queries (name and security) operate on the duplicated handle, not on the original remote handle.
 
-- **Parsing / API errors**
-  - Tool defects or incorrect assumptions.
-  - Must be fixed before drawing conclusions.
+---
 
-A tool that collapses these into “no data” produces misleading output.
+### Access-mask and attribute heuristics
+
+Not all file handles are equally useful or stable to query. The extractor applies a conservative heuristic:
+
+- at least one of the following access rights must be present:
+  - READ_CONTROL
+  - SYNCHRONIZE
+  - FILE_READ_DATA
+  - FILE_READ_ATTRIBUTES
+  - FILE_READ_EA
+
+Additionally, handles flagged as `KernelHandle` or `ProtectClose` are skipped.
+
+These checks do not guarantee safety, but they significantly reduce the number of low-value or problematic handles queried downstream.
+
+---
+
+### Object name resolution with bounded execution
+
+Resolving an object name via `NtQueryObject(ObjectNameInformation)` can block indefinitely for certain IPC endpoints, especially high-churn named pipes used by modern frameworks.
+
+To prevent a single pathological handle from stalling the entire extraction, WTBM resolves object names using a dedicated background thread with a fixed timeout.
+
+Key characteristics:
+
+- The name query is allowed to run for a bounded time window.
+- If the timeout is exceeded, the handle is skipped.
+- A per-run cache tracks `(pid, handle)` pairs that have already timed out to avoid repeated stalls.
+
+If the query completes but returns an empty name, the handle is also skipped.
+
+This design treats object name resolution as **best-effort** and explicitly prioritizes extractor stability.
+
+---
+
+### Named pipe identification via NT namespace
+
+After successful name resolution, a handle is classified as a named pipe only if its kernel path starts with:
+
+```
+\Device\NamedPipe\
+```
+
+This check is explicit and avoids misclassifying other file-backed objects or device paths.
+
+---
+
+### Stable pipe identity construction
+
+For each named pipe, the extractor builds a `NamedPipeRef` containing:
+
+- `NtPath`: the full kernel path (e.g. `\Device\NamedPipe\LOCAL\example`)
+- `Win32Path`: the corresponding Win32 path (`\\.\pipe\LOCAL\example`)
+- `Name`: a display-safe identifier used only for output and logging
+
+The relative pipe name is preserved **exactly** when constructing the Win32 path.
+Any normalization (such as replacing path separators) is limited to the display name to avoid generating non-existent pipe paths.
+
+---
+
+### Security descriptor retrieval (by handle)
+
+Security metadata is retrieved using the duplicated handle, not the pipe name.
+
+Querying security **by handle** avoids additional name-resolution paths and has proven more robust on volatile or short-lived IPC endpoints.
+
+The extractor records:
+
+- Owner SID
+- Owner account name (best-effort)
+- Full SDDL representation
+
+If security retrieval fails, the error is stored alongside the pipe rather than silently discarding the endpoint.
+
+---
+
+### Deduplication and merge strategy
+
+The stable identity of a pipe is its NT path.
+
+When multiple handles reference the same pipe, results are merged using the following rule:
+
+- prefer the instance with a complete and successfully retrieved security descriptor,
+- union tags and metadata where applicable.
+
+This avoids duplicate output while preserving the most informative observation.
+
+---
+
+### Observability guarantees and limitations
+
+This strategy provides:
+
+- process-attributed named pipe inventory for high-authority processes,
+- stable identifiers suitable for correlation rules,
+- bounded execution even in the presence of kernel edge cases.
+
+It does not attempt to:
+
+- prove client reachability from lower integrity levels,
+- fully attribute server ownership beyond observed handle association.
+
+Those aspects are intentionally deferred to later analysis stages that consume the collected evidence.
+
+---
+
+### Role in the overall research workflow
+
+This extraction layer is designed to produce high-fidelity evidence objects that later rules can analyze for trust-boundary exposure.
+
+By separating *collection* from *interpretation*, WTBM keeps the system understandable, auditable, and adaptable as the research evolves.
 
 ---
 
